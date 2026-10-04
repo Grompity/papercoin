@@ -12,9 +12,9 @@ export function About() {
             it's money. <em>but the internet raised it.</em>
           </h2>
           <p class="about__line" data-reveal>
-            no whitepaper cosplay. no borrowed numbers. ${cfg.ticker} is a
-            community-driven dollar bill living on Solana — it shows up,
-            says something, and never pretends to be a financial product.
+            No whitepaper cosplay. No borrowed numbers. ${cfg.ticker} is a
+            community-driven dollar bill living on Solana — here to make noise,
+            stack lore, and see where this thing goes.
           </p>
         </div>
         <div class="about__sticker" data-reveal aria-hidden="true">
