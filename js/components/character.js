@@ -20,7 +20,7 @@ export function CharacterSection() {
           </h2>
           <ul class="char__bio" data-reveal>
             <li>hoodie black. <span class="g">confidence printed.</span></li>
-            <li>smells like fresh bills and <span class="g">bad decisions.</span></li>
+            <li>smells like fresh bills <span class="g">that pay in USDC.</span></li>
             <li>no fine print. <span class="g">always shows up.</span></li>
           </ul>
           <p class="char__foot" data-reveal>Solana-born. street-run.</p>
