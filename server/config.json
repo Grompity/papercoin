@@ -1,0 +1,81 @@
+{
+  "brand": {
+    "token": "$PAPER",
+    "contractAddress": "E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk",
+    "xHandle": "Papersol6",
+    "xDisplayHandle": "@paperusdc",
+    "xUrl": "https://x.com/Papersol6?s=20",
+    "telegramUrl": "https://t.me/+xehlz9Ap11ZmOTUx",
+    "jupiterUrl": "https://jup.ag/tokens/E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk",
+    "emberUrl": "https://embercurve.fun/t/E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk?ref=DzT4UWupdm7HhkmBukRz5Z2ssRf7YzDVnJ7VRskjVqpp"
+  },
+
+  "paperboard": {
+    "refreshMinutes": 360,
+    "scheduler": true,
+
+    "eligibility": {
+      "identifiers": [
+        "E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk",
+        "@paperusdc",
+        "$paper"
+      ],
+      "followAccount": "paperusdc",
+      "followEffect": "retroactive_on_next_scan",
+      "minImpressions": 10
+    },
+
+    "scoring": {
+      "version": "pb-v1",
+      "basePerPost": 5,
+      "perLike": 6,
+      "perReply": 8,
+      "perRepost": 14,
+      "perQuote": 20,
+      "impressions": { "points": 30, "halfLife": 1200 },
+      "postCap": 120,
+      "maxScoredPostsPerWindow": 12,
+      "duplicateWindowHours": 24,
+      "thinSignalMultiplier": 0.5
+    },
+
+    "prize": {
+      "pool": 1000000,
+      "type": "PAPER",
+      "unit": "$PAPER",
+      "model": "mixed",
+      "models": {
+        "proportional": { "ofPool": 1.0 },
+        "top_n": { "ofPool": 0.5, "n": 3, "weights": [0.5, 0.3, 0.2] },
+        "mixed": {
+          "splits": {
+            "proportional": 0.5,
+            "top_n": { "share": 0.3, "n": 3, "weights": [0.5, 0.3, 0.2] },
+            "community": 0.2
+          }
+        }
+      }
+    },
+
+    "competition": {
+      "slug": "issue-001",
+      "name": "PAPERBOARD — Issue 001",
+      "description": "Post PAPER. Earn points. Climb the front page.",
+      "startsAt": "2026-10-01T00:00:00Z",
+      "endsAt": "2026-11-01T00:00:00Z",
+      "status": "active"
+    },
+
+    "tiers": [
+      { "from": 1, "to": 1,  "label": "FRONT PAGE", "tone": "gold" },
+      { "from": 2, "to": 3,  "label": "HEADLINE",   "tone": "silver" },
+      { "from": 4, "to": 10, "label": "EXTRA",      "tone": "print" }
+    ],
+
+    "ratelimit": {
+      "apiPerMinute": 90,
+      "scanPerTenMinutes": 6,
+      "leaderboardPerMinute": 30
+    }
+  }
+}

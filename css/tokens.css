@@ -1,0 +1,48 @@
+/* ============================================================
+   $PAPER — tokens.css
+   the paper palette: near-black press ink, newsprint cream,
+   green as the only loud voice, tan as the sneaker accent.
+   ============================================================ */
+
+:root {
+  /* grounds */
+  --ink: #0c0d09;            /* page ground */
+  --ink-2: #14160f;          /* raised panel */
+  --ink-3: #0f1a12;          /* deep-green ground (buy) */
+  --deep-green: #0e2416;
+  --card: #151f16;
+
+  /* newsprint */
+  --cream: #f2efe4;
+  --cream-dim: rgba(242, 239, 228, .64);
+  --cream-faint: rgba(242, 239, 228, .40);
+
+  /* rules & hairlines (light-on-dark / dark-on-light) */
+  --line: rgba(242, 239, 228, .13);
+  --line-2: rgba(242, 239, 228, .26);
+  --line-dark: rgba(12, 13, 9, .16);
+
+  /* the voice */
+  --green: #3ec95f;
+  --green-ink: #1b7a41;      /* green legible on cream */
+  --green-deep: #0a140c;     /* ink pressed into green */
+  --green-soft: rgba(62, 201, 95, .55);
+
+  /* currency accents (used like seasoning) */
+  --tan: #c19363;
+  --gold: #d9b554;           /* FRONT PAGE only */
+  --silver: #b9beb4;         /* HEADLINE */
+
+  /* type */
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --serif: "Playfair Display", Georgia, "Times New Roman", serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+
+  /* layout rails */
+  --nav-h: 64px;
+  --rail: clamp(20px, 5.5vw, 88px);
+  --col: 1280px;
+
+  /* motion */
+  --ease-out: cubic-bezier(.22, .61, .36, 1);
+}

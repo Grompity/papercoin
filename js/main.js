@@ -1,30 +1,29 @@
 import { CONFIG } from "./config.js";
 import { ICONS } from "./icons.js";
-import { Navbar } from "./components/navbar.js";
+import { Masthead } from "./components/masthead.js";
 import { Hero } from "./components/hero.js";
-import { Marquee } from "./components/marquee.js";
-import { About } from "./components/about.js";
-import { CharacterSection } from "./components/character.js";
+import { Board } from "./components/board.js";
+import { FrontPage } from "./components/frontpage.js";
+import { Scoring } from "./components/scoring.js";
+import { TheBill } from "./components/dollarbill.js";
 import { BuySection } from "./components/buy.js";
-import { Community } from "./components/community.js";
-import { FutureSection } from "./components/future.js";
 import { Footer } from "./components/footer.js";
+import { startPaperboard } from "./paperboard.js";
 
 const root = document.getElementById("root");
 
 root.innerHTML = [
-  Navbar(),
+  Masthead(),
   Hero(),
-  Marquee(),
-  About(),
-  CharacterSection(),
+  Board(),
+  FrontPage(),
+  Scoring(),
+  TheBill(),
   BuySection(),
-  Community(),
-  FutureSection(),
   Footer(),
 ].join("\n");
 
-/* — reveal on scroll (one observer, no demo-soup) — */
+/* — reveal on scroll (one observer, zero demo soup) — */
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const revealables = root.querySelectorAll("[data-reveal]");
 
@@ -44,12 +43,6 @@ if (reduced || !("IntersectionObserver" in window)) {
   );
   revealables.forEach((el) => io.observe(el));
 }
-
-/* — nav gains its sheet once the page moves — */
-const nav = document.getElementById("nav");
-const onScroll = () => nav.classList.toggle("is-stuck", window.scrollY > 8);
-window.addEventListener("scroll", onScroll, { passive: true });
-onScroll();
 
 /* — copy the contract address (hero + footer share one behavior) — */
 function legacyCopy(text) {
@@ -98,7 +91,7 @@ for (const btn of root.querySelectorAll("[data-copy-ca]")) {
   });
 }
 
-/* — pointer parallax on the character's spotlight (fine pointers only) — */
+/* — pointer parallax on the hero wire-photo (fine pointers only) — */
 if (!reduced && window.matchMedia("(pointer: fine)").matches) {
   for (const zone of root.querySelectorAll("[data-parallax]")) {
     const depth = Number(zone.dataset.parallaxDepth ?? 1);
@@ -126,3 +119,6 @@ if (!reduced && window.matchMedia("(pointer: fine)").matches) {
     zone.addEventListener("pointerleave", () => { tx = 0; ty = 0; wake(); });
   }
 }
+
+/* — PAPERBOARD: the product boots after the sheet is on the page — */
+startPaperboard();

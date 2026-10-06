@@ -1,45 +1,42 @@
 import { CONFIG } from "../config.js";
 import { ICONS } from "../icons.js";
-import { ContractCopy } from "./contract-copy.js";
 
-/* Hero — wordmark, tagline, cut-out character, CTA, CA, socials.
-   the mascot breaks out of its spotlight frame (see .hero__art in css). */
+/* Hero — the front page. one kicker, one giant sentence, one line of support,
+   one plate. the sentence never crops at any size; the mascot is a printed
+   photograph, not a picture frame. */
 export function Hero() {
   const cfg = CONFIG;
   return `
-    <section class="hero" id="top">
+    <section class="hero rail" id="top">
       <div class="hero__inner">
 
-        <div class="hero__lead">
-          <p class="kicker" data-reveal>
-            <span class="kicker__dot" aria-hidden="true"></span> ${cfg.network} native
-          </p>
-          <h1 class="display hero__title" data-reveal>
-            <span class="hero__dollar">$</span>PAPER
-          </h1>
-          <p class="hero__tag" data-reveal>${cfg.tagline}</p>
-          <p class="hero__facts" data-reveal>community-driven · no fine print</p>
+        <div class="hero__date">
+          <span class="kicker" data-set="comp-line">Issue 001 · Solana edition</span>
+          <span data-set="comp-state">on press</span>
         </div>
 
-        <div class="hero__art" data-reveal data-parallax>
-          <span class="hero__ghost" aria-hidden="true">PAPER</span>
-          <figure class="hero__spot" aria-hidden="true">
-            <img class="hero__img" src="${cfg.mascotImage}" alt="the $PAPER mascot — a dollar bill wearing a black hoodie and cap" width="832" height="1248">
+        <h1 class="hero__title" data-reveal>
+          the internet's most <span class="g">overqualified</span> dollar&nbsp;bill.
+        </h1>
+
+        <p class="hero__sub" data-reveal>
+          <b>${cfg.ticker}</b> is a memecoin on Solana — post about it on X,
+          the server prints points, points move you up the <b>Paperboard</b>.
+        </p>
+
+        <div class="hero__actions" data-reveal>
+          <a class="btn btn--solid" href="#board" data-hero-connect>Connect X ${ICONS.x}</a>
+          <a class="btn btn--pill" href="#buy">Buy ${cfg.ticker}</a>
+          <a class="btn btn--pill" href="#frontpage">PAPERBOARD ↓</a>
+        </div>
+
+        <div class="hero__art" data-reveal data-parallax data-parallax-depth="0.55">
+          <figure class="wire">
+            <img src="${cfg.poses.front}" alt="Paper — the dollar bill, hooded, pointing at you" decoding="async">
+            <figcaption>Paper — front page, first edition</figcaption>
           </figure>
         </div>
 
-        <div class="hero__actions" data-reveal>
-          <div class="hero__ctas">
-            <a class="btn btn--solid" href="#buy">Buy ${cfg.ticker} ${ICONS.arrow}</a>
-            ${ContractCopy({ variant: "pill" })}
-          </div>
-          <div class="hero__socials" aria-label="social links">
-            <a class="sbtn" href="${cfg.twitterUrl}" target="_blank" rel="noopener noreferrer" aria-label="$PAPER on X">${ICONS.x}<span>X</span></a>
-            <a class="sbtn" href="${cfg.telegramUrl}" target="_blank" rel="noopener noreferrer" aria-label="$PAPER on Telegram">${ICONS.telegram}<span>TG</span></a>
-          </div>
-        </div>
-
       </div>
-      <div class="hero__cue" aria-hidden="true">scroll</div>
     </section>`;
 }
