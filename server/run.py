@@ -33,19 +33,22 @@ def build():
 
 
 def seed_mock_world(svc_, cid):
-    """Idempotent demo seeding: known mock users, scanned + ranked."""
+    """Idempotent demo seeding: known mock users, scanned + ranked.
+    The demo scan stays clickable because mock scans never spend X budget."""
     already = svc_.db.conn.execute(
         "SELECT 1 FROM users WHERE x_user_id LIKE 'mock-%' LIMIT 1").fetchone()
-    if already:
-        return
-    for uid in ("mock-user-0001", "mock-user-0002", "mock-user-0003",
-                "mock-user-0004", "mock-user-0005"):
-        u = svc_.x.me(uid)
-        row_id = svc_.upsert_user(u)
-        user_row = dict(svc_.db.conn.execute(
-            "SELECT * FROM users WHERE id=?", (row_id,)).fetchone())
-        svc_.scan_user(user_row, cid)
-    svc_.refresh_standings(cid)
+    if not already:
+        for uid in ("mock-user-0001", "mock-user-0002", "mock-user-0003",
+                    "mock-user-0004", "mock-user-0005"):
+            u = svc_.x.me(uid)
+            row_id = svc_.upsert_user(u)
+            user_row = dict(svc_.db.conn.execute(
+                "SELECT * FROM users WHERE id=?", (row_id,)).fetchone())
+            svc_.scan_user(user_row, cid)
+        svc_.refresh_standings(cid)
+    svc_.db.conn.execute(
+        "UPDATE users SET last_scan_at=NULL WHERE x_user_id LIKE 'mock-%'")
+    svc_.db.conn.commit()
 
 
 class Handler(BaseHTTPRequestHandler):

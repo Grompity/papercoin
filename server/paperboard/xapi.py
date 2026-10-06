@@ -98,12 +98,18 @@ class MockXClient:
             raise XError("unknown mock user")
         return bool(u["follows_paper"])
 
-    def recent_posts(self, user_id, since):
-        out = []
-        for p in self._posts:
-            if p["author_id"] == user_id and p["created_at"] >= since:
-                out.append(p)
-        return out
+    def recent_posts(self, user_id, since, start_time=None, token=None, max_results=50):
+        floor = start_time if start_time is not None else since
+        out = [p for p in self._posts
+               if p["author_id"] == user_id and p["created_at"] >= floor]
+        out.sort(key=lambda p: p["created_at"], reverse=True)
+        out = out[:max_results]
+        return out, dict(returned=len(out), more=False, next_token=None)
+
+    def metrics_for(self, ids):
+        ids = set(ids)
+        out = [p for p in self._posts if p["id"] in ids]
+        return out, dict(returned=len(out), more=False, next_token=None)
 
     def exchange_code(self, code, verifier):
         uid = "mock-user-0001"
@@ -137,10 +143,15 @@ class LiveXClient:
         })
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
-                return json.loads(resp.read())
+                payload = json.loads(resp.read())
         except urllib.error.HTTPError as e:
             body = e.read().decode(errors="replace")[:400]
+            print(f"[xapi] GET {path} failed {e.code}")
             raise XError(f"x api {e.code}: {body}")
+        d = payload.get("data")
+        n = len(d) if isinstance(d, list) else (1 if d else 0)
+        print(f"[xapi] GET {path} -> {n} resource(s)")
+        return payload
 
     def me(self, user_id):
         d = self._get(f"/users/{user_id}", dict(user_fields=USER_FIELDS)).get("data") or {}
@@ -154,28 +165,28 @@ class LiveXClient:
                          dict(usernames=acct, max_results="1"))
         return bool(data.get("data"))
 
-    def recent_posts(self, user_id, since):
-        data = self._get(f"/users/{user_id}/tweets",
-                         dict(tweet_fields=TWEET_FIELDS,
-                              non_public_metrics=NON_PUBLIC,
-                              max_results="50"))
-        out = []
-        for d in data.get("data") or []:
-            pm = d.get("public_metrics") or {}
-            npm = d.get("non_public_metrics") or {}
-            out.append(dict(
-                id=d.get("id"),
-                author_id=d.get("author_id"),
-                text=d.get("text") or "",
-                url=f"https://x.com/i/web/status/{d.get('id')}",
-                created_at=_iso_to_epoch(d["created_at"]) if d.get("created_at") else None,
-                public_metrics=dict(retweet_count=pm.get("retweet_count", 0),
-                                    reply_count=pm.get("reply_count", 0),
-                                    like_count=pm.get("like_count", 0),
-                                    quote_count=pm.get("quote_count", 0)),
-                non_public_metrics=dict(impression_count=npm.get("impression_count", 0)),
-            ))
-        return [p for p in out if p.get("created_at") and p["created_at"] >= since]
+    def recent_posts(self, user_id, since, start_time=None, token=None, max_results=50):
+        params = [("tweet_fields", TWEET_FIELDS), ("non_public_metrics", NON_PUBLIC),
+                  ("max_results", str(max_results))]
+        if start_time is not None:                      # server-side window (P1)
+            params.append(("start_time", _iso_utc(start_time)))
+        if token:
+            params.append(("pagination_token", token))
+        data = self._get(f"/users/{user_id}/tweets", params)
+        meta = data.get("meta") or {}
+        rows = [_map_post(d) for d in data.get("data") or []]
+        out = [p for p in rows if p.get("created_at") and p["created_at"] >= since]
+        return out, dict(returned=int(meta.get("result") or len(rows)),
+                         more=bool(meta.get("next")),
+                         next_token=meta.get("next"))
+
+    def metrics_for(self, ids):
+        ids = list(ids)[:100]                           # v2 /tweets ids cap
+        params = [("ids", i) for i in ids] + [("tweet_fields", TWEET_FIELDS),
+                                              ("non_public_metrics", NON_PUBLIC)]
+        data = self._get("/tweets", params)
+        rows = [_map_post(d) for d in data.get("data") or []]
+        return rows, dict(returned=len(rows), more=False, next_token=None)
 
     def authorize_url(self, state, code_challenge):
         q = urllib.parse.urlencode(dict(
@@ -216,6 +227,29 @@ class LiveXClient:
 
 def _iso_to_epoch(ts):
     return _dt.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+
+
+def _iso_utc(t):
+    from datetime import timezone
+    return _dt.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _map_post(d):
+    """one shape for a tweet object, from either endpoint."""
+    pm = d.get("public_metrics") or {}
+    npm = d.get("non_public_metrics") or {}
+    return dict(
+        id=d.get("id"),
+        author_id=d.get("author_id"),
+        text=d.get("text") or "",
+        url=f"https://x.com/i/web/status/{d.get('id')}",
+        created_at=_iso_to_epoch(d["created_at"]) if d.get("created_at") else None,
+        public_metrics=dict(retweet_count=pm.get("retweet_count", 0),
+                            reply_count=pm.get("reply_count", 0),
+                            like_count=pm.get("like_count", 0),
+                            quote_count=pm.get("quote_count", 0)),
+        non_public_metrics=dict(impression_count=npm.get("impression_count", 0)),
+    )
 
 
 def make_pkce():

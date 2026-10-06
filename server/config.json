@@ -14,6 +14,28 @@
     "refreshMinutes": 360,
     "scheduler": true,
 
+    "scan": {
+      "cooldownMinutes": 360,
+      "overlapSeconds": 300,
+      "deltaMaxPages": 3,
+      "maxConcurrent": 8,
+      "followCacheHours": 24
+    },
+
+    "metrics": {
+      "sweepOnScan": true,
+      "recentHours": 48,
+      "recentMinutes": 120,
+      "agedMinutes": 720,
+      "freezeDays": 30,
+      "refreshPerScanCap": 100,
+      "finalSnapshot": true
+    },
+
+    "apiCosts": { "postsRead": 0.005, "usersRead": 0.01, "followingsRead": 0.01 },
+
+    "budget": { "dailyXResources": 150000, "monthlyEstimatedUsd": 1500 },
+
     "eligibility": {
       "identifiers": [
         "E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk",

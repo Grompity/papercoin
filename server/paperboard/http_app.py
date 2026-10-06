@@ -135,6 +135,12 @@ class Router:
                 if cid is None:
                     return fail(404, "no_active_competition")
                 return ok(posts=s.posts_view(user, cid), mode=mode)
+            if path == "/api/usage":
+                if not settings.admin_token and not settings.mock:
+                    return fail(503, "admin_token_not_configured")
+                if (headers.get("x-paper-token") or "") != (settings.admin_token or "dev"):
+                    return fail(401, "bad_admin_token")
+                return ok(usage=s.usage_view())
             return fail(404, "unknown_api_route")
 
         if method == "POST":
@@ -166,6 +172,7 @@ class Router:
                 except XError as e:
                     return fail(502, f"x_exchange_failed: {e}")
                 uid = s.upsert_user(tok["user"])
+                s.record_x(dict(kind="users", resources=1, label="/users/me (login)"))
                 token = s.new_session(uid)
                 s.db.conn.execute("DELETE FROM oauth_states WHERE state=?", (state,))
                 s.db.conn.commit()
@@ -198,9 +205,16 @@ class Router:
                 if not self._allow(f"scan:{user['x_user_id']}",
                                    rl["scanPerTenMinutes"], 600):
                     return fail(429, "scan_rate_limited")
-                res = s.scan_user(user, cid)
+                res = s.scan_user(user, cid, force=bool(query.get("force")))
                 if not res.get("ok"):
-                    return fail(502, res.get("reason", "scan_failed"))
+                    reason = res.get("reason", "scan_failed")
+                    body = {"error": reason}
+                    if res.get("retry_after") is not None:
+                        body["retryAfter"] = res["retry_after"]
+                    code = {"scan_cooldown": 429, "scan_inflight": 429,
+                            "scan_busy": 503,
+                            "scan_budget_exhausted": 503}.get(reason, 502)
+                    return code, body, None
                 s.refresh_standings(cid, movement_from_prev=False)
                 return 200, dict(scan=res, **s.me_view(user, cid)), None
             if path == "/api/admin/refresh":

@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS users (
   follows_paper INTEGER NOT NULL DEFAULT 0,
   follows_since REAL,
   follows_checked_at REAL,
+  scan_watermark REAL,
+  last_scan_at  REAL,
   created_at    REAL NOT NULL,
   updated_at    REAL NOT NULL
 );
@@ -52,6 +54,8 @@ CREATE TABLE IF NOT EXISTS posts (
   scored_at     REAL,
   score_json    TEXT,
   points        REAL NOT NULL DEFAULT 0,
+  metrics_refreshed_at REAL,
+  metrics_frozen INTEGER NOT NULL DEFAULT 0,
   UNIQUE (competition_id, x_post_id),
   FOREIGN KEY (competition_id) REFERENCES competitions(id)
 );
@@ -101,9 +105,37 @@ CREATE TABLE IF NOT EXISTS scans (
   x_user_id     TEXT NOT NULL,
   scanned_at    REAL NOT NULL,
   found         INTEGER NOT NULL DEFAULT 0,
-  qualified     INTEGER NOT NULL DEFAULT 0
+  qualified     INTEGER NOT NULL DEFAULT 0,
+  kind          TEXT NOT NULL DEFAULT 'delta'
+);
+
+CREATE TABLE IF NOT EXISTS x_usage (
+  day                 TEXT PRIMARY KEY,
+  requests            INTEGER NOT NULL DEFAULT 0,
+  post_resources      INTEGER NOT NULL DEFAULT 0,
+  user_resources      INTEGER NOT NULL DEFAULT 0,
+  following_resources INTEGER NOT NULL DEFAULT 0,
+  estimated           REAL NOT NULL DEFAULT 0,
+  scans               INTEGER NOT NULL DEFAULT 0,
+  follow_checks       INTEGER NOT NULL DEFAULT 0,
+  follow_cache_hits   INTEGER NOT NULL DEFAULT 0
 );
 """
+
+
+def _migrate(conn):
+    """Additive column migration for pre-shipping dev databases."""
+    def cols(table):
+        return {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+    for table, col, ddl in (
+            ("users", "scan_watermark", "REAL"),
+            ("users", "last_scan_at", "REAL"),
+            ("posts", "metrics_refreshed_at", "REAL"),
+            ("posts", "metrics_frozen", "INTEGER NOT NULL DEFAULT 0"),
+            ("scans", "kind", "TEXT NOT NULL DEFAULT 'delta'")):
+        if table in {"users", "posts", "scans"} and col not in cols(table):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+    conn.commit()
 
 
 class DB:
@@ -112,6 +144,7 @@ class DB:
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
         self.conn.executescript(SCHEMA)
+        _migrate(self.conn)
         self.conn.commit()
 
     def close(self):
