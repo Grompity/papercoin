@@ -110,6 +110,34 @@ prod) with a server-side expiry that slides; the account layer never trusts
 a client-supplied id, so a dashboard has no IDOR door. account POSTs demand
 `application/json` (415 otherwise) as the CSRF shape-guard.
 
+## the syndication feed — live probe (2026-10-08)
+
+the public route that verifies pasted posts was run against the live
+network (≈30 polite one-off GETs, no retry storms, five real recent
+`@Paperusdc` posts + misses + malformed ids, one unauthenticated GET each):
+
+| field | available | reliability | limitations |
+| ----- | --------- | ----------- | ----------- |
+| post exists / byline / text / date | by the feed's shape | **unverifiable today** | the route answers `404` for EVERY id — live posts included |
+| likes (`favorite_count`) | on contract | contract-only | the one metric syndication historically always reported |
+| replies (`conversation_count`) | on contract | contract-only | counts the CONVERSATION — a reply proxy, not a reply count; unverified live |
+| reposts / quotes | on contract | contract-only | root-level; unverified live |
+| impressions | not on the public feed | — | never scored when absent |
+| media / reply / quote relations | `entities.media`, `in_reply_to_*` | contract-only | shape pinned by the replay test |
+
+findings, plainly: the feed currently serves **no posts** — `tweet/f/json`
+404s uniformly (a deprecation ghost), and the older `post_json` route answers
+`200` with an **empty body** for any id, so a live probe records statuses,
+not fields. two hardenings followed from that: an empty/unparseable 200 now
+fails closed as `XError` → `502 provider_unavailable` (never a 500, never a
+fake verification); and an unverified follow-gate (no app bearer) is stamped
+`follow_deferred` on the row — never a bare `ok` — with its points provisional
+until a scan or the payout ledger resolves the follow. deployment note: on
+hosts whose python carries no system CA bundle, the syndication TLS handshake
+fails outright (curl is unaffected) — ship a bundle (e.g. `/etc/ssl/cert.pem`)
+alongside `X_API_BEARER`, and the dev magic-link echo can never leak into
+`smtp` mode (the `link` key is stamped only in `mock`).
+
 ## update the links
 
 everything lives in `js/config.js`:
@@ -128,9 +156,12 @@ token CA: `E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk`
 - a post is eligible when it carries an identifier (CA / `@paperusdc` / `$PAPER`)
   **and** the author follows `@paperusdc`; a later follow is retroactive on
   the next scan.
-- scoring is transparent (`pb-v1`): base per post + per-engagement points,
-  a diminishing impressions curve, duplicate + frequency zero-outs, a
-  per-window cap — the server's audit trail is rendered, never re-divined.
+- scoring is transparent (`pb-v1`, amended `pb-v1.1` after the 2026-10 live
+  feed probe): base per post + per-engagement points, a diminishing
+  impressions curve, duplicate + frequency zero-outs, a per-window cap — and
+  an honest gap: a metric the provider did not report earns NO points and
+  is also never punished as a thin zero (the stamp reads `metrics_unreported`).
+  the server's audit trail is rendered, never re-divined.
 - prizes are `mixed` (proportional slice + top-3 slice + community slice)
   over a 1,000,000 `$PAPER` pool.
 - the front page is a SNAPSHOT, refreshed ~4× a day by the scheduler —

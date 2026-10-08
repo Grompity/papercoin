@@ -8,6 +8,7 @@ wallet validation, snapshot ranking/tiers, and every HTTP route (via direct
 dispatch, no sockets). Exit code is the failure count.
 """
 
+import json                                      # noqa: E402
 import os
 import sys
 import time
@@ -20,7 +21,8 @@ from paperboard.eligibility import Eligibility, normalize_wallet      # noqa: E4
 from paperboard.prizes import estimate, tier_for                      # noqa: E402
 from paperboard.scoring import score_post, normalize_text             # noqa: E402
 from paperboard.settings import Settings                              # noqa: E402
-from paperboard.xapi import MockXClient                               # noqa: E402
+from paperboard.xapi import MockXClient, SyndicationXClient, XError   # noqa: E402
+from paperboard import xapi as xapimod                                  # noqa: E402
 
 CA = "E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk"
 FAILURES = []
@@ -114,6 +116,49 @@ class ShyX:
 
     def follows_username(self, handle):
         return self.follows
+
+
+class BlindX:
+    """The live-feed 2026 case, replayed: the provider resolves the post —
+    existence, byline, text — but reports NO metrics at all. Presence must
+    still be verifiable, and absence of measurement must not be punished."""
+
+    mode = "mock"
+
+    def resolve_post(self, post_id):
+        return dict(provider="syndication", post_id=post_id, author="quiet",
+                    author_id=None, text="$paper quiet post",
+                    url=f"https://x.com/quiet/status/{post_id}",
+                    posted_at=time.time() - 60,
+                    metrics=dict(likes=None, replies=None, reposts=None,
+                                 quotes=None, impressions=None),
+                    provided=[])
+
+    def follows_username(self, handle):
+        return True
+
+
+class BoomX(BlindX):
+    """Provider transport trouble: resolving raises, loudly."""
+
+    def resolve_post(self, post_id):
+        raise XError("syndication 503")
+
+
+class ReplayResp:
+    """Stands in for what urlopen answers, holding a captured payload."""
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass
+
+    def read(self):
+        return json.dumps(self.payload).encode()
 
 
 def fx_post(pid, author, ago, text, m=(0, 0, 0, 0, 0)):
@@ -716,6 +761,91 @@ def main():
           resS.get("ok") and subS.get("points", 0) > 0
           and subS.get("missing") == ["reposts", "quotes", "impressions"]
           and subS.get("provided") == ["likes", "replies"], str(subS)[:150])
+
+    # ---------------------------------------- phase 5: deferred follow gate
+    shyD = ShyX(follows=None)                    # no bearer: the gate defers
+    stD3, dD3, sD3, cidD3 = make_env2("DEFER", shyD)
+    accD3, _cre, _er = sD3.create_or_touch_account("defer@paper.io")
+    signedD3, _why = sD3.consume_magic_link(sD3.issue_magic_link(accD3["id"])[0])
+    resD3 = sD3.submit_post(signedD3, "https://x.com/shy/status/777777777", cidD3)
+    subD3 = resD3.get("submission") or {}
+    rowD3 = dD3.conn.execute("SELECT score_json FROM submissions LIMIT 1").fetchone()
+    auditD3 = json.loads(rowD3["score_json"])
+    check("follow gate: an unverifiable follow defers — the row never claims a plain ok",
+          resD3.get("ok") and subD3.get("eligible")
+          and subD3.get("reason") == "follow_deferred"
+          and auditD3.get("follow") == "deferred" and subD3.get("points", 0) > 0,
+          f"{subD3.get('reason')}/{auditD3.get('follow')}")
+
+    # ------------------------------ phase 3: unknown metrics are not thin zeros
+    scx = stD3.pb["scoring"]
+    ptsB, auditB = score_post(dict(likes=None, replies=None, reposts=None,
+                                   quotes=None, impressions=None), scx, {})
+    check("scoring: metrics unreported keeps the base and says so, never thin_signal",
+          abs(ptsB - scx["basePerPost"]) < .001
+          and "metrics_unreported" in auditB["applied"]
+          and "thin_signal" not in auditB["applied"], str(auditB["applied"]))
+    ptsZ, auditZ = score_post(dict(likes=0, replies=0, reposts=0,
+                                   quotes=0, impressions=0), scx, {})
+    check("scoring: reported zeros are still punished as thin (zero ≠ unknown)",
+          abs(ptsZ - scx["basePerPost"] * scx["thinSignalMultiplier"]) < .001
+          and "thin_signal" in auditZ["applied"]
+          and auditZ["scoring_version"] == "pb-v1.1", str(auditZ["applied"]))
+    bx = BlindX()
+    _stB3, _dB3, sB3, cidB3 = make_env2("BLIND", bx)
+    accB3, _cre, _er = sB3.create_or_touch_account("blind@paper.io")
+    signedB3, _why = sB3.consume_magic_link(sB3.issue_magic_link(accB3["id"])[0])
+    resB3 = sB3.submit_post(signedB3, "https://x.com/quiet/status/555", cidB3)
+    check("submit: a metrics-blind provider still verifies presence (base points ride)",
+          resB3.get("ok") and (resB3.get("submission") or {}).get("points")
+          == scx["basePerPost"], str(resB3)[:110])
+
+    # --------------------------------------- the provider failing must fail closed
+    _stB4, _dB4, sB4, cidB4 = make_env2("BOOM", BoomX())
+    accB4, _cre, _er = sB4.create_or_touch_account("boom@paper.io")
+    signedB4, _why = sB4.consume_magic_link(sB4.issue_magic_link(accB4["id"])[0])
+    resB4 = sB4.submit_post(signedB4, "https://x.com/quiet/status/555", cidB4)
+    check("submit: provider failure produces no row, no points (fail closed)",
+          not resB4.get("ok") and resB4.get("reason") == "provider_unavailable"
+          and _dB4.conn.execute(
+              "SELECT COUNT(*) n FROM submissions").fetchone()["n"] == 0)
+
+    # ---------------- phase 2's live feed served no posts: contract replay only
+    live = {"tweet": {"id_str": "888888888888888888", "text": "$paper live front page",
+                      "created_at": 1760000000000,
+                      "user": {"screen_name": "LiveAuthor", "id_str": "4242"},
+                      "favorite_count": 41, "conversation_count": 7,
+                      "entities": {"media": [{"type": "photo"}]},
+                      "in_reply_to_status_str": "777"}}
+    saved_urlopen = xapimod.urllib.request.urlopen
+    try:
+        xapimod.urllib.request.urlopen = lambda req, timeout=None: ReplayResp(live)
+        got = SyndicationXClient(Settings()).resolve_post("888888888888888888")
+        check("syndication replay: the documented shape maps honestly — reported"
+              " fields in, everything unreported stays None (never invented)",
+              got["author"] == "liveauthor"
+              and got["metrics"]["likes"] == 41 and got["metrics"]["replies"] == 7
+              and got["metrics"]["impressions"] is None
+              and got["metrics"]["quotes"] is None
+              and got["provided"] == ["likes", "replies"], str(got)[:150])
+        xapimod.urllib.request.urlopen = lambda req, timeout=None: ReplayResp({})
+        gone = SyndicationXClient(Settings()).resolve_post("1")
+        check("syndication replay: a gone post arrives {} and reads as no post",
+              gone is None)
+        class EmptyResp(ReplayResp):
+            def read(self):
+                return b""
+        xapimod.urllib.request.urlopen = lambda req, timeout=None: EmptyResp(None)
+        hardened = False
+        try:
+            SyndicationXClient(Settings()).resolve_post("1")
+        except XError:
+            hardened = True
+        check("syndication: a 200 with an empty body fails closed as XError,"
+              " not an uncaught crash (a deprecated CDN ghost answers stubs)",
+              hardened)
+    finally:
+        xapimod.urllib.request.urlopen = saved_urlopen
 
     print("failures:", len(FAILURES))
     return len(FAILURES)

@@ -319,6 +319,10 @@ class SyndicationXClient:
             raise XError(f"syndication {e.code}")
         except OSError as e:
             raise XError(f"syndication unreachable: {e}")
+        except ValueError as e:      # live 2026 note: a deprecated CDN stub can
+            raise XError(f"syndication unparseable: {e}")   # answer 200 + empty
+        if not isinstance(payload, dict):
+            raise XError("syndication unparseable: not an object")
         if not payload:
             return None                                  # gone-tweets arrive {}
         t = payload.get("tweet") or {}

@@ -48,7 +48,7 @@
     },
 
     "scoring": {
-      "version": "pb-v1",
+      "version": "pb-v1.1",
       "basePerPost": 5,
       "perLike": 6,
       "perReply": 8,

@@ -1,6 +1,6 @@
 """Scoring engine — pure functions, config-driven, nothing hardcoded in the UI.
 
-v1 ("pb-v1") per qualifying post:
+v1 ("pb-v1", amended "pb-v1.1" — see anti-gaming note) per qualifying post:
 
     raw = basePerPost
           + likes      * perLike
@@ -21,6 +21,12 @@ Anti-gaming lives next to the math:
     rest are stamped "frequency_capped" (spam wall posts can't farm).
   * impressions use a saturating curve (never linear), so a bot post with
     100k views can't outscore the whole front page.
+  * (pb-v1.1, from the 2026-10 live feed probe) thin_signal is a statement
+    about ZERO engagement, never about UNKNOWN engagement: the penalty
+    applies only when the provider reported something; a post whose metrics
+    all came back missing keeps the full base and carries the stamp
+    "metrics_unreported". Missing never earns points, and missing is never
+    punished as if it were zero.
 
 Every stored point carries an audit blob (contributions + applied rules), so
 the board can always explain itself.
@@ -70,7 +76,17 @@ def score_post(post, cfg, ctx):
     applied = []
     raw = sum(contribs.values())
 
-    if imp < s.get("minImpressions", 10) and engagement == 0:
+    # a metric the provider did not report arrives as None and contributes
+    # zero points; a post with NOTHING reported carries the stamp
+    # "metrics_unreported" and is spared the thin-signal penalty — that
+    # penalty speaks about measured zeros, not about absence of measurement.
+    reported = any(post.get(k) is not None
+                    for k in ("likes", "replies", "reposts", "quotes",
+                              "impressions"))
+    if not reported:
+        applied.append("metrics_unreported")
+
+    if reported and imp < s.get("minImpressions", 10) and engagement == 0:
         raw *= s["thinSignalMultiplier"]
         applied.append("thin_signal")
 

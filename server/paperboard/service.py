@@ -365,7 +365,13 @@ class Service:
             eligible, reason = False, "no_follow"
         else:                                   # unknown gate defers to the scan
             eligible = matched is not None
-            reason = "ok" if eligible else "no_identifier"
+            if eligible:
+                # an unverified follow is not the same as a verified one: the
+                # row says follow_deferred, never a bare ok (a later scan or
+                # the payout ledger resolves it — nothing is claimed twice).
+                reason = "ok" if follows is True else "follow_deferred"
+            else:
+                reason = "no_identifier"
         metrics = dict(post.get("metrics") or {})
         if eligible:
             points, audit = score_post(metrics, self.scoring, {})

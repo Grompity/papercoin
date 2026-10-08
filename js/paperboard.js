@@ -321,8 +321,10 @@ async function doSubmit() {
     const s = j.submission || {};
     const missing = (s.missing || []).length
       ? ` <span class="dim">(${s.missing.length} metrics not reported — not scored)</span>` : "";
+    const defer = s.reason === "follow_deferred"
+      ? ' <span class="dim">(follow deferred)</span>' : "";
     const verdictMsg = s.eligible
-      ? `VERIFIED ✓ — post by @${esc(s.author)} · <b>+${fmt(s.points, 1)} POINTS</b>${missing}`
+      ? `VERIFIED ✓ — post by @${esc(s.author)} · <b>+${fmt(s.points, 1)} POINTS</b>${missing}${defer}`
       : `on the wire · <b>0 POINTS</b> — ${esc(s.reason.replace("_", " "))}`;
     verdict(verdictMsg, !!s.eligible);
     input.value = "";
