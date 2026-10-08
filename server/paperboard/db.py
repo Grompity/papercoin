@@ -124,12 +124,11 @@ CREATE TABLE IF NOT EXISTS accounts (
   last_login_at       REAL
 );
 
--- magic links: short-lived single-use auth tokens. the hash is the authority
--- (sha256 of the random token); the plain token rides along for resend echo
--- and dev-mode links only — it never becomes the account identity.
+-- magic links: short-lived single-use auth tokens. the sha256 hash is the
+-- only stored form of the secret — the plaintext lives long enough to mail,
+-- then only in the dev mailer's memory (never persisted after creation).
 CREATE TABLE IF NOT EXISTS magic_links (
   token_hash   TEXT PRIMARY KEY,
-  token        TEXT NOT NULL,
   account_id   INTEGER NOT NULL,
   created_at   REAL NOT NULL,
   expires_at   REAL NOT NULL,
@@ -254,6 +253,25 @@ def _migrate(conn):
                                last_seen_at FROM sessions""")
         conn.execute("DROP TABLE sessions")
         conn.execute("ALTER TABLE sessions_new RENAME TO sessions")
+    # magic_links once kept a plaintext convenience copy of the token. the
+    # hash is the authority and the plaintext now lives only in the mailer's
+    # memory, so legacy databases lose the column (rebuild, not drop-column:
+    # old sqlite carries no ALTER ... DROP COLUMN).
+    if "token" in cols("magic_links"):
+        conn.execute("""CREATE TABLE magic_links_new(
+                          token_hash   TEXT PRIMARY KEY,
+                          account_id   INTEGER NOT NULL,
+                          created_at   REAL NOT NULL,
+                          expires_at   REAL NOT NULL,
+                          used_at      REAL,
+                          FOREIGN KEY (account_id) REFERENCES accounts(id))""")
+        conn.execute("""INSERT INTO magic_links_new
+                        SELECT token_hash,account_id,created_at,expires_at,used_at
+                        FROM magic_links""")
+        conn.execute("DROP TABLE magic_links")
+        conn.execute("ALTER TABLE magic_links_new RENAME TO magic_links")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_magic_account"
+                     " ON magic_links(account_id)")
     conn.commit()
 
 

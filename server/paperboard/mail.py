@@ -27,6 +27,15 @@ class MockMail:
         print(f"[mail mock] → {to}: {link_url}")
         return True
 
+    def last_token_for(self, to):
+        """Dev convenience: the ring is the only place a plaintext token
+        outlives the request that minted it. the database keeps only the
+        hash, so a suppressed resend echo is answered from memory."""
+        for email, link_url in reversed(self.sent):
+            if email == to:
+                return link_url.split("token=")[-1]
+        return None
+
 
 class SmtpMail:
     """Real delivery: stdlib SMTP, STARTTLS on the submission port (or

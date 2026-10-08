@@ -164,25 +164,25 @@ class Service:
         return self.account_by_id(self._last_id()), True, None
 
     def issue_magic_link(self, account_id, at=None):
-        """Short-lived + single-use. The random token's storage form is the
-        sha256; the plaintext only rides out in the email link. A resend
-        inside the echo window returns the live link without a second
-        email — link spam is an attack like any other.
-        Returns (token, mailed)."""
+        """Short-lived + single-use. The sha256 hash is the stored form; the
+        plaintext rides out in the email link and is never read back — a
+        resend inside the echo window defers to the mailer, which remembers
+        what it mailed. link spam is an attack like any other.
+        Returns (token or None, mailed)."""
         t = now() if at is None else float(at)
         window = float(self.acfg.get("magicResendSeconds", 45))
         recent = self.db.conn.execute(
-            "SELECT token FROM magic_links WHERE account_id=? AND used_at IS NULL"
+            "SELECT 1 FROM magic_links WHERE account_id=? AND used_at IS NULL"
             " AND expires_at>? AND created_at>? ORDER BY created_at DESC LIMIT 1",
             (account_id, t, t - window)).fetchone()
         if recent:
-            return recent["token"], False
+            return None, False
         ttl = float(self.acfg.get("magicLinkMinutes", 15))
         token = new_magic_token()
         self.db.conn.execute(
-            "INSERT INTO magic_links(token_hash,token,account_id,created_at,expires_at)"
-            " VALUES(?,?,?,?,?)",
-            (hash_magic_token(token), token, account_id, t, t + ttl * 60))
+            "INSERT INTO magic_links(token_hash,account_id,created_at,expires_at)"
+            " VALUES(?,?,?,?)",
+            (hash_magic_token(token), account_id, t, t + ttl * 60))
         self.db.conn.commit()
         return token, True
 

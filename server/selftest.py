@@ -15,6 +15,7 @@ import time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from paperboard import db as dbmod, http_app, service as svc           # noqa: E402
+from paperboard.accounts import hash_magic_token                      # noqa: E402
 from paperboard.eligibility import Eligibility, normalize_wallet      # noqa: E402
 from paperboard.prizes import estimate, tier_for                      # noqa: E402
 from paperboard.scoring import score_post, normalize_text             # noqa: E402
@@ -629,8 +630,8 @@ def main():
 
     stt, payload = go("POST", "/api/account/start", body={"email": "grompity@paper.io"})
     toke = magic_from(payload or {})
-    database.conn.execute("UPDATE magic_links SET expires_at=? WHERE token=?",
-                          (time.time() - 10, toke))
+    database.conn.execute("UPDATE magic_links SET expires_at=? WHERE token_hash=?",
+                          (time.time() - 10, hash_magic_token(toke)))
     database.conn.commit()
     stt, payload = go("GET", "/api/auth/magic", {"token": toke}, {}, {}, None)
     check("auth: links expire (short-lived by config, enforced at the click)",
@@ -644,6 +645,36 @@ def main():
           stt == 200 and tok2 == tok3 and payload.get("sent")
           and len(s.mail.sent) == sent_after_real_send,
           f"{tok2[:8]}… {sent_after_real_send}")
+
+    # the plaintext-never-persisted guarantee. the schema speaks first: a
+    # fresh database has no plaintext column to hold a token at all.
+    cols_magic = {row[1] for row in
+                  database.conn.execute("PRAGMA table_info(magic_links)")}
+    check("mail: the database keeps the hash, never the plaintext key",
+          "token" not in cols_magic, str(sorted(cols_magic)))
+    # then the production shape: an smtp-shaped mailer keeps no memory of
+    # the plaintext, so the response must carry nothing but {sent: true}
+    # and the only way back in is the link the mail itself captured.
+    class ProdMail:
+        mode = "smtp"
+        def __init__(self):
+            self.last = None
+            self.sends = 0
+        def send_magic_link(self, to, link_url):
+            self.sends += 1
+            self.last = link_url
+            return True
+    prod = ProdMail()
+    mock_mailer, s.mail = s.mail, prod
+    stt, payload = go("POST", "/api/account/start", body={"email": "prod@paper.io"})
+    check("mail: production answers with a bare sent — no link leaks to the client",
+          stt == 200 and sorted(payload) == ["sent"] and prod.sends == 1,
+          f"{payload}")
+    outp = r.dispatch("GET", "/api/auth/magic",
+                      {"token": prod.last.split("token=")[-1]}, {}, {}, None)
+    check("auth: the mailed token is the whole secret (302 on the captured link)",
+          outp[0] == 302, f"{outp[0]} {outp[2]}")
+    s.mail = mock_mailer
     codes = [go("POST", "/api/account/start", body={"email": "spam@paper.io"})[0]
              for _ in range(7)]
     check("mail: magic sends are rate limited per inbox",

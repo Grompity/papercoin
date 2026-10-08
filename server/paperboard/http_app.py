@@ -219,8 +219,11 @@ class Router:
                     except RuntimeError as e:
                         return fail(502, f"mail_failed: {e}")
                 out = dict(sent=True)                   # same shape, known or not
-                if s.mail.mode == "mock":
-                    out["link"] = f"/api/auth/magic?token={token}"
+                if s.mail.mode == "mock":               # dev-only echo — the
+                    echo = (token if mailed else        # plaintext survives
+                            s.mail.last_token_for(acct["email"]))  # in the mailer
+                    if echo:
+                        out["link"] = f"/api/auth/magic?token={echo}"
                 return ok(**out)
 
             if path == "/api/account/onboard":
