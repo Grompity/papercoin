@@ -44,6 +44,7 @@
       ],
       "followAccount": "paperusdc",
       "followEffect": "retroactive_on_next_scan",
+      "followRequired": false,
       "minImpressions": 10
     },
 

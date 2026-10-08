@@ -323,8 +323,10 @@ async function doSubmit() {
       ? ` <span class="dim">(${s.missing.length} metrics not reported — not scored)</span>` : "";
     const defer = s.reason === "follow_deferred"
       ? ' <span class="dim">(follow deferred)</span>' : "";
+    const pres = s.reason === "presence_verified"
+      ? ' <span class="dim">(presence verified — metrics unreported)</span>' : "";
     const verdictMsg = s.eligible
-      ? `VERIFIED ✓ — post by @${esc(s.author)} · <b>+${fmt(s.points, 1)} POINTS</b>${missing}${defer}`
+      ? `VERIFIED ✓ — post by @${esc(s.author)} · <b>+${fmt(s.points, 1)} POINTS</b>${missing}${defer}${pres}`
       : `on the wire · <b>0 POINTS</b> — ${esc(s.reason.replace("_", " "))}`;
     verdict(verdictMsg, !!s.eligible);
     input.value = "";

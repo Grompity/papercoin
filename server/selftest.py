@@ -21,7 +21,9 @@ from paperboard.eligibility import Eligibility, normalize_wallet      # noqa: E4
 from paperboard.prizes import estimate, tier_for                      # noqa: E402
 from paperboard.scoring import score_post, normalize_text             # noqa: E402
 from paperboard.settings import Settings                              # noqa: E402
-from paperboard.xapi import MockXClient, SyndicationXClient, XError   # noqa: E402
+from paperboard.xapi import (MockXClient, SyndicationXClient, XError,
+                             FXTwitterXClient, OembedXClient,
+                             FallbackXClient, XRatelimited)             # noqa: E402
 from paperboard import xapi as xapimod                                  # noqa: E402
 
 CA = "E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk"
@@ -103,7 +105,7 @@ class ShyX:
     def __init__(self, follows=True):
         self.follows = follows
 
-    def resolve_post(self, post_id):
+    def resolve_post(self, post_id, url=None):
         if post_id != "777777777":
             return None
         return dict(provider="syndication", post_id="777777777", author="shy",
@@ -125,7 +127,7 @@ class BlindX:
 
     mode = "mock"
 
-    def resolve_post(self, post_id):
+    def resolve_post(self, post_id, url=None):
         return dict(provider="syndication", post_id=post_id, author="quiet",
                     author_id=None, text="$paper quiet post",
                     url=f"https://x.com/quiet/status/{post_id}",
@@ -141,7 +143,7 @@ class BlindX:
 class BoomX(BlindX):
     """Provider transport trouble: resolving raises, loudly."""
 
-    def resolve_post(self, post_id):
+    def resolve_post(self, post_id, url=None):
         raise XError("syndication 503")
 
 
@@ -616,9 +618,12 @@ def main():
     stt, payload = go("POST", "/api/account/posts", cookies=ck, headers=JSONISH,
                       body={"url": "https://x.com/bidetbear/status/m8"})
     sub8 = (payload or {}).get("submission") or {}
-    check("submit: the follow gate prints its reason (verified post, zero points)",
-          stt == 200 and not sub8.get("eligible") and sub8.get("reason") == "no_follow"
-          and sub8.get("points") == 0.0, str(sub8)[:120])
+    check("submit: the follow gate is advisory now (followRequired false) —"
+          " the bidetbear post rows up verified, with the audit saying"
+          " 'advisory', never a claim",
+          stt == 200 and sub8.get("eligible")
+          and sub8.get("reason") == "ok" and sub8.get("points") > 0
+          and sub8.get("author") == "bidetbear", str(sub8)[:120])
     stt, payload = go("GET", "/api/account/submissions", cookies=ck)
     subs = (payload or {}).get("submissions") or []
     check("acct: the owner's ledger shows exactly my posts (auth rides the account id)",
@@ -763,8 +768,9 @@ def main():
           and subS.get("provided") == ["likes", "replies"], str(subS)[:150])
 
     # ---------------------------------------- phase 5: deferred follow gate
-    shyD = ShyX(follows=None)                    # no bearer: the gate defers
+    shyD = ShyX(follows=None)                    # a gate that answers 'unknown'
     stD3, dD3, sD3, cidD3 = make_env2("DEFER", shyD)
+    sD3.eligcfg["followRequired"] = True         # the optional-strict mode pin
     accD3, _cre, _er = sD3.create_or_touch_account("defer@paper.io")
     signedD3, _why = sD3.consume_magic_link(sD3.issue_magic_link(accD3["id"])[0])
     resD3 = sD3.submit_post(signedD3, "https://x.com/shy/status/777777777", cidD3)
@@ -844,6 +850,266 @@ def main():
         check("syndication: a 200 with an empty body fails closed as XError,"
               " not an uncaught crash (a deprecated CDN ghost answers stubs)",
               hardened)
+    finally:
+        xapimod.urllib.request.urlopen = saved_urlopen
+
+    # --------------------------- the zero-cost provider stack (2026-10) -----
+    # the live network was probed by hand (README carries the record); these
+    # replays run the REAL adapter code over captured shapes, so the battery
+    # stays deterministic and hermetic.
+    import io as _io
+
+    class StackResp(_io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            self.close()
+
+        def getcode(self):
+            return 200
+
+    def http_err(code):
+        return xapimod.urllib.error.HTTPError("u", code, "probe", {},
+                                              _io.BytesIO(b""))
+
+    def fx_body(pid, **over):
+        t = dict(id=pid, text="$paper replay post",
+                 url=f"https://x.com/Paperusdc/status/{pid}",
+                 author=dict(screen_name="Paperusdc", id="4242"),
+                 created_timestamp="1791475345",
+                 likes="8", replies="3", retweets="3", quotes="0",
+                 views="123", bookmarks="0")
+        t.update(over)
+        for k in [k for k, v in t.items() if v is None]:
+            t.pop(k)
+        return json.dumps(dict(code=200, message="OK", tweet=t)).encode()
+
+    def oe_body(pid, html=None, author="Paperusdc"):
+        h = html if html is not None else (
+            f'<blockquote class="twitter-tweet"><p lang="en">$paper presence post'
+            f'</p>&mdash; Paper (<a href="#">@{author}</a>) <a href="#">'
+            f"October 8, 2026</a></blockquote>")
+        return json.dumps(dict(url=f"https://x.com/{author}/status/{pid}",
+                               author_name="Paper",
+                               author_url=f"https://x.com/{author}",
+                               html=h)).encode()
+
+    stX = Settings()
+    counters = dict(fx=0, oe=0)
+    saved_urlopen = xapimod.urllib.request.urlopen
+    xapimod.urllib.request.urlopen = None      # set per-scenario below
+
+    def stub(route):
+        def r(req, timeout=None):
+            u = req.full_url
+            who = "fx" if "fxtwitter" in u else "oe"
+            counters[who] += 1
+            out = route(u, who)
+            if isinstance(out, BaseException):
+                raise out
+            return StackResp(out if isinstance(out, bytes) else out.encode())
+        return r
+
+    try:
+        stK, dK, sK, cidK = make_env2("STK", FallbackXClient(
+            FXTwitterXClient(stX), OembedXClient(stX)))
+        accK, _cr, _er = sK.create_or_touch_account("stack@paper.io")
+        signedK, _w = sK.consume_magic_link(
+            sK.issue_magic_link(accK["id"])[0])
+        acc2, _cr2, _er2 = sK.create_or_touch_account("stack2@paper.io")
+        signed2, _w2 = sK.consume_magic_link(
+            sK.issue_magic_link(acc2["id"])[0])
+        cnt0 = dict(counters)                    # where the clock of calls stands
+
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: fx_body("9001") if who == "fx" else oe_body("9001"))
+        resK = sK.submit_post(signedK, "https://x.com/anyone/status/9001", cidK)
+        subK = resK.get("submission") or {}
+        audK = json.loads(dK.conn.execute(
+            "SELECT score_json FROM submissions ORDER BY id DESC LIMIT 1"
+            ).fetchone()["score_json"])
+        ptsW, _aW = score_post(dict(likes=8, replies=3, reposts=3, quotes=0,
+                                    impressions=123), scx, {})
+        check("stack: both providers stand — fx answers with full engagement,"
+              " oEmbed is not needed; audit says engagement/fxtwitter/"
+              "advisory/fetched_at; the wrong paste byline became the truth",
+              resK.get("ok") and subK.get("verification") == "engagement"
+              and subK.get("provider") == "fxtwitter" and subK.get("reason") == "ok"
+              and subK.get("points") == ptsW and subK.get("author") == "paperusdc"
+              and counters["fx"] - cnt0["fx"] == 1 and counters["oe"] - cnt0["oe"] == 0
+              and audK.get("follow") == "advisory" and audK.get("fetched_at")
+              and audK.get("verification") == "engagement", str(subK)[:110])
+
+        xapimod.urllib.request.urlopen = stub(lambda u, who: fx_body(
+            "9002", likes="0", replies="0", retweets="0", quotes="0",
+            views="0", bookmarks="0") if who == "fx" else oe_body("9002"))
+        res2 = sK.submit_post(signedK, "https://x.com/anyone/status/9002", cidK)
+        sub2 = res2.get("submission") or {}
+        check("stack: genuine zeros stay a measurement, not an absence — the"
+              " thin-signal (earned) rides the row, missing is empty",
+              res2.get("ok") and sub2.get("points") == ptsZ
+              and sub2.get("missing") == [] and sub2.get("verification") == "engagement",
+              str(sub2)[:90])
+
+        xapimod.urllib.request.urlopen = stub(lambda u, who: fx_body(
+            "9003", quotes=None, views=None, bookmarks=None)
+            if who == "fx" else oe_body("9003"))
+        res3 = sK.submit_post(signedK, "https://x.com/anyone/status/9003", cidK)
+        sub3 = res3.get("submission") or {}
+        ptsM, _aM = score_post(dict(likes=8, replies=3, reposts=3, quotes=None,
+                                    impressions=None), scx, {})
+        check("stack: omitted metrics are missing, never zero-fed — the score"
+              " sums only what was reported",
+              res3.get("ok") and sub3.get("missing") == ["quotes", "impressions"]
+              and sub3.get("points") == ptsM
+              and sub3.get("verification") == "engagement", str(sub3.get("missing")))
+
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: (b"<!DOCTYPE html><html>landing</html>" if who == "fx"
+                            else oe_body("9004")))
+        res4 = sK.submit_post(signedK, "https://x.com/anyone/status/9004", cidK)
+        sub4 = res4.get("submission") or {}
+        aud4 = json.loads(dK.conn.execute(
+            "SELECT score_json FROM submissions ORDER BY id DESC LIMIT 1"
+            ).fetchone()["score_json"])
+        check("stack: a 200 wearing HTML is the landing page, not a post —"
+              " oEmbed carries it as presence_verified, base points only,"
+              " metrics_unreported stamped",
+              res4.get("ok") and sub4.get("reason") == "presence_verified"
+              and sub4.get("points") == scx["basePerPost"]
+              and sub4.get("verification") == "presence"
+              and sub4.get("provider") == "oembed"
+              and sub4.get("missing") == ["likes", "replies", "reposts",
+                                          "quotes", "impressions"]
+              and "metrics_unreported" in aud4.get("applied", []),
+              str(sub4)[:110])
+
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: http_err(404) if who == "fx" else oe_body("9005"))
+        res5 = sK.submit_post(signedK, "https://x.com/anyone/status/9005", cidK)
+        sub5 = res5.get("submission") or {}
+        check("stack: fx's 404 alone does not bury a post — the official eye"
+              " cross-checks it into a presence_verified row",
+              res5.get("ok") and sub5.get("reason") == "presence_verified",
+              str(res5)[:90])
+
+        rows_before = dK.conn.execute("SELECT COUNT(*) n FROM submissions").fetchone()["n"]
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: http_err(404))
+        res6 = sK.submit_post(signedK, "https://x.com/anyone/status/9006", cidK)
+        check("stack: both eyes see 404 — a confirmed absence (post_not_found),"
+              " not provider trouble, and no row lands",
+              not res6.get("ok") and res6.get("reason") == "post_not_found"
+              and dK.conn.execute(
+                  "SELECT COUNT(*) n FROM submissions").fetchone()["n"] == rows_before)
+
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: http_err(429) if who == "fx" else oe_body("9007"))
+        res7 = sK.submit_post(signedK, "https://x.com/anyone/status/9007", cidK)
+        check("stack: fx's 429 (pace) defers to oEmbed — presence, not a verdict",
+              res7.get("ok")
+              and (res7.get("submission") or {}).get("reason") == "presence_verified")
+
+        before5 = dict(counters)
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: http_err(500) if who == "fx" else oe_body("9008"))
+        res8 = sK.submit_post(signedK, "https://x.com/anyone/status/9008", cidK)
+        check("stack: fx's 5xx gets exactly the one bounded retry, then"
+              " oEmbed catches it as presence",
+              res8.get("ok") and counters["fx"] - before5["fx"] == 2
+              and (res8.get("submission") or {}).get("reason") == "presence_verified",
+              f"fx tries {counters['fx'] - before5['fx']}")
+
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: b"}{" if who == "fx" else oe_body("9009"))
+        res9 = sK.submit_post(signedK, "https://x.com/anyone/status/9009", cidK)
+        check("stack: invalid JSON is a malformed response, not a post —"
+              " the ladder carries it",
+              res9.get("ok")
+              and (res9.get("submission") or {}).get("reason") == "presence_verified")
+
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: fx_body("9999") if who == "fx" else oe_body("9010"))
+        res10 = sK.submit_post(signedK, "https://x.com/anyone/status/9010", cidK)
+        check("stack: a mismatched post id (asked 9010, got 9999) is refused —"
+              " a payload must be about the asked post",
+              res10.get("ok")
+              and (res10.get("submission") or {}).get("reason") == "presence_verified")
+
+        xapimod.urllib.request.urlopen = stub(lambda u, who: (
+            http_err(500) if who == "fx" else
+            oe_body("9011", html='<blockquote class="twitter-timeline">'
+                    '<a href="#">Posts by anyone</a></blockquote>')))
+        res11 = sK.submit_post(signedK, "https://x.com/anyone/status/9011", cidK)
+        check("stack: an unrelated timeline answer is not the submitted post —"
+              " fail closed, no fabricated verification",
+              not res11.get("ok")
+              and res11.get("reason") == "provider_unavailable"
+              and dK.conn.execute("SELECT COUNT(*) n FROM submissions"
+                                  " WHERE x_post_id='9011'").fetchone()["n"] == 0,
+              str(res11)[:90])
+
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: http_err(500) if who == "fx" else http_err(503))
+        res12 = sK.submit_post(signedK, "https://x.com/anyone/status/9012", cidK)
+        check("stack: both providers down — provider_unavailable names both,"
+              " no row, no points, no invention",
+              not res12.get("ok") and res12.get("reason") == "provider_unavailable"
+              and "fx 500" in str(res12.get("detail"))
+              and "oembed 503" in str(res12.get("detail"))
+              and dK.conn.execute("SELECT COUNT(*) n FROM submissions"
+                                  " WHERE x_post_id='9012'").fetchone()["n"] == 0,
+              str(res12.get("detail"))[:110])
+
+        dup_before = dict(counters)
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: fx_body("9001") if who == "fx" else oe_body("9001"))
+        res13 = sK.submit_post(signed2, "https://x.com/other/status/9001", cidK)
+        check("stack: a cross-account resubmit hits the wall BEFORE the wire —"
+              " zero upstream calls, owner 'other', no double award",
+              not res13.get("ok")
+              and res13.get("reason") == "duplicate_submission"
+              and res13.get("owner") == "other"
+              and counters["fx"] == dup_before["fx"]
+              and counters["oe"] == dup_before["oe"], str(res13)[:110])
+
+        fx_only = FXTwitterXClient(stX, rpm=1)
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: (fx_body(u.rsplit("/", 1)[-1]) if who == "fx"
+                            else oe_body("b000")))
+        fx_only.resolve_post("b000")
+        bucketed = False
+        try:
+            fx_only.resolve_post("b001")           # a fresh id: cache cannot help
+        except XRatelimited:
+            bucketed = True
+        check("stack: the self-imposed polite bucket speaks before the"
+              " provider ever has to (rpm=1, second fresh lookup: pace)",
+              bucketed)
+
+        fx_cache = FXTwitterXClient(stX)
+        cbefore = dict(counters)
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: fx_body("c300") if who == "fx" else oe_body("c300"))
+        fx_cache.resolve_post("c300")
+        second = fx_cache.resolve_post("c300")
+        check("stack: a same-id re-lookup answers from the TTL cache — one"
+              " GET total, and the snapshot says it rode the cache",
+              counters["fx"] - cbefore["fx"] == 1 and second.get("cached") is True)
+
+        stN, dN, sN, cidN = make_env2("STKF", ShyX(follows=False))
+        sN.eligcfg["followRequired"] = True
+        accN, _cn, _en = sN.create_or_touch_account("flag@paper.io")
+        signedN, _w = sN.consume_magic_link(sN.issue_magic_link(accN["id"])[0])
+        resN = sN.submit_post(signedN, "https://x.com/shy/status/777777777", cidN)
+        subN = resN.get("submission") or {}
+        check("rules: when a deployment still wants the follow gate, the flag"
+              " still rules (follows False + flag on: no_follow rows up"
+              " processed, NOT eligible, zero points)",
+              resN.get("reason") == "no_follow" and not subN.get("eligible")
+              and subN.get("points") == 0.0 and subN.get("author") == "shy",
+              str(subN)[:140])
     finally:
         xapimod.urllib.request.urlopen = saved_urlopen
 

@@ -15,7 +15,7 @@ from .eligibility import Eligibility, normalize_wallet
 from .mail import make_mailer
 from .prizes import estimate, tier_for
 from .scoring import normalize_text, score_post
-from .xapi import make_pkce, XError
+from .xapi import make_pkce, XError, XPostGone
 
 
 def now():
@@ -32,6 +32,7 @@ class Service:
         # single knob: minImpressions lives with eligibility, the engine reads it too
         self.scoring.setdefault("minImpressions", cfg["eligibility"].get("minImpressions", 10))
         self.elig = Eligibility(cfg)
+        self.eligcfg = dict(cfg.get("eligibility", {}))
         self.prize = cfg["prize"]
         self.tiers = cfg["tiers"]
         self.refresh_seconds = cfg["refreshMinutes"] * 60
@@ -348,7 +349,9 @@ class Service:
                         owner="self" if dup["account_id"] == account["id"] else "other",
                         points=dup["points"])
         try:
-            post = self.x.resolve_post(post_id)
+            post = self.x.resolve_post(post_id, raw_url)
+        except XPostGone:
+            return dict(ok=False, reason="post_not_found")
         except XError as e:
             return dict(ok=False, reason="provider_unavailable", detail=str(e))
         if post is None:
@@ -357,44 +360,60 @@ class Service:
         url = post.get("url") or fallback_url
         if not handle:
             url = fallback_url
-        follows = (self.x.follows_username(handle)
-                   if handle and hasattr(self.x, "follows_username") else None)
+        # the follow gate left the automatic path (2026-10 rules): no free
+        # provider can vouch for it. when the rules DO demand it (config),
+        # an unknown gate defers rather than guessing, and a gate that cannot
+        # even be asked stays honest: the audit says 'advisory', not 'yes'.
+        require_follow = bool(self.eligcfg.get("followRequired", False))
+        follows = "unchecked"
+        if require_follow and handle and hasattr(self.x, "follows_username"):
+            try:
+                follows = self.x.follows_username(handle)
+            except XError:
+                follows = None                # a gate that cannot answer defers
         text = post.get("text") or ""
         matched = self.elig.matched_identifier(text)
-        if follows is False:
+        verification = post.get("verification") or (
+            "engagement" if (post.get("provided") or []) else "presence")
+        if matched is None:
+            eligible, reason = False, "no_identifier"
+        elif require_follow and follows is False:
             eligible, reason = False, "no_follow"
-        else:                                   # unknown gate defers to the scan
-            eligible = matched is not None
-            if eligible:
-                # an unverified follow is not the same as a verified one: the
-                # row says follow_deferred, never a bare ok (a later scan or
-                # the payout ledger resolves it — nothing is claimed twice).
-                reason = "ok" if follows is True else "follow_deferred"
-            else:
-                reason = "no_identifier"
+        elif require_follow and follows is None:
+            eligible, reason = True, "follow_deferred"
+        elif verification == "presence":
+            eligible, reason = True, "presence_verified"
+        else:
+            eligible, reason = True, "ok"
         metrics = dict(post.get("metrics") or {})
         if eligible:
             points, audit = score_post(metrics, self.scoring, {})
         else:
             points, audit = 0.0, dict(applied=["not_eligible"], contributions={})
         audit["matched"] = matched
-        audit["follow"] = "yes" if follows else ("deferred" if follows is None else "no")
+        audit["follow"] = ("advisory" if follows == "unchecked"
+                           else "yes" if follows
+                           else "deferred" if follows is None else "no")
         audit["provided"] = list(post.get("provided") or [])
         audit["missing"] = [k for k in ("likes", "replies", "reposts", "quotes",
                                         "impressions") if metrics.get(k) is None]
+        audit["verification"] = verification
+        audit["provider"] = post.get("provider") or "unknown"
+        audit["fetched_at"] = post.get("fetched_at")
         self.db.conn.execute(
             "INSERT INTO submissions(account_id,competition_id,x_post_id,author_handle,"
             "url,text,posted_at,submitted_at,verified,eligible,reason,points,"
-            "metrics_json,score_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "metrics_json,score_json,verification) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (account["id"], competition_id, post_id, handle, url,
              text, post.get("posted_at"), t, 1, int(eligible), reason, points,
-             json.dumps(metrics), json.dumps(audit)))
+             json.dumps(metrics), json.dumps(audit), verification))
         self.db.conn.commit()
         return dict(ok=True, reason=reason, submission=dict(
             id=self._last_id(), x_post_id=post_id, author=handle, url=url,
             posted_at=post.get("posted_at"), submitted_at=t, eligible=eligible,
             reason=reason, points=points, provided=audit["provided"],
-            missing=audit["missing"], matched=matched, text=text))
+            missing=audit["missing"], matched=matched, text=text,
+            verification=verification, provider=audit["provider"]))
 
     # --------------------------------------------------------------- dashboard
     def dashboard(self, account, competition_id=None):

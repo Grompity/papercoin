@@ -20,6 +20,7 @@ resolve/follows interface without touching accounts, scoring, or the routes.
 import base64
 import hashlib
 import json
+import re
 import secrets
 import time
 import urllib.error
@@ -121,7 +122,7 @@ class MockXClient:
         return out, dict(returned=len(out), more=False, next_token=None)
 
     # -- submission interface (same shape SyndicationXClient returns) ------
-    def resolve_post(self, post_id):
+    def resolve_post(self, post_id, url=None):
         """The pasted id is looked up in the scripted world only — the mock
         never invents a post it was not told about (unknown ids → None,
         honestly, never a synthesized pass)."""
@@ -229,7 +230,7 @@ class LiveXClient:
         return rows, dict(returned=len(rows), more=False, next_token=None)
 
     # -- submission interface (the v2 app-token path, no user OAuth needed) --
-    def resolve_post(self, post_id):
+    def resolve_post(self, post_id, url=None):
         rows, _meta = self.metrics_for([post_id])
         if not rows:
             return None
@@ -309,7 +310,7 @@ class SyndicationXClient:
     def __init__(self, settings):
         self.s = settings
 
-    def resolve_post(self, post_id):
+    def resolve_post(self, post_id, url=None):
         url = f"{self.SYND_URL}?id={post_id}&dnt=true"
         req = urllib.request.Request(url, headers={"User-Agent": "paperboard/0.2"})
         try:
@@ -385,6 +386,231 @@ class SyndicationXClient:
 
     def metrics_for(self, ids):
         raise XError("scan pipeline needs the live v2 client")
+
+
+class XPostGone(XError):
+    """The provider looked and the post is NOT there — a settled negative,
+    not transport trouble. Only a real 404 (or a 404-folded envelope) earns
+    this standing, so a generic 200 can never fake a post."""
+
+
+class XRatelimited(XError):
+    """'Pace yourself' — from the provider (429) or from our own polite
+    bucket, which would rather wait than burst the door."""
+
+
+class FXTwitterXClient:
+    """FxEmbed/FxTwitter — the primary zero-cost reader (live-probed
+    2026-10): a full JSON envelope, exact creation timestamps, real zeros
+    kept apart from absences, and a JSON 404 for gone posts. A 200 wearing
+    HTML is the landing page, never a post — the generic-200 trap is
+    refused below. No key, no cookie; politeness is policy, and the bucket
+    below is that policy, enforced locally."""
+
+    mode = "live"
+    FX_BASE = "https://api.fxtwitter.com"
+
+    def __init__(self, settings, timeout=8, retries=1, cache_ttl=300,
+                  rpm=30, clock=None):
+        self.s = settings
+        self.timeout = float(timeout)
+        self.retries = int(retries)
+        self.cache_ttl = float(cache_ttl)
+        self.rpm = int(rpm)
+        self.clock = clock or time.time
+        self._hits = []                                   # the polite bucket
+        self._cache = {}                                  # post_id -> (expires, shape)
+
+    def resolve_post(self, post_id, url=None):
+        pid = str(post_id)
+        hit = self._cache.get(pid)
+        if hit and hit[0] > self.clock():
+            out = dict(hit[1])
+            out["cached"] = True
+            return out
+        # the byline slot is ignored by the service (probed live: any handle
+        # resolves by id and answers with the canonical one), so /i/ stands
+        body = _polite_get(self.FX_BASE, f"/i/status/{pid}", self.timeout,
+                           self.retries, self._hits, self.rpm, self.clock, "fx")
+        try:
+            payload = json.loads(body)
+        except ValueError:
+            raise XError("fx unparseable (a landing page wears a 200)")
+        if (not isinstance(payload, dict) or payload.get("code") != 200
+                or not isinstance(payload.get("tweet"), dict)):
+            if isinstance(payload, dict) and payload.get("code") == 404:
+                raise XPostGone("fx 404")                 # some days it folds 404 into a 200
+            raise XError("fx malformed envelope")
+        t = payload["tweet"]
+        if str(t.get("id") or "") != pid:
+            raise XError(f"fx id mismatch: asked {pid}, got {t.get('id')}")
+        author = ((t.get("author") or {}).get("screen_name") or "")
+        if not author:
+            raise XError("fx malformed: a post without an author")
+
+        def num(*names):
+            for n in names:
+                v = t.get(n)
+                if isinstance(v, str) and v.isnumeric():
+                    v = int(v)                            # numeric strings are the contract
+                if isinstance(v, int):
+                    return v                              # a genuine zero stays a zero
+            return None                                   # an absence stays an absence
+
+        metrics = dict(likes=num("likes"), replies=num("replies"),
+                       reposts=num("retweets"), quotes=num("quotes"),
+                       impressions=num("views", "impression_count"),
+                       bookmarks=num("bookmarks"))       # snapshotted, not scored
+        stamp = t.get("created_timestamp")
+        try:
+            posted = float(stamp) if stamp is not None else None
+        except (ValueError, TypeError):
+            posted = None
+        out = dict(provider="fxtwitter", post_id=pid, author=author.lower(),
+                   author_id=(str((t.get("author") or {}).get("id") or "") or None),
+                   text=t.get("text") or "",
+                   url=t.get("url") or f"https://x.com/i/status/{pid}",
+                   posted_at=posted, metrics=metrics,
+                   provided=[k for k, v in metrics.items() if v is not None],
+                   verification="engagement", fetched_at=self.clock())
+        self._cache[pid] = (out["fetched_at"] + self.cache_ttl, out)
+        return dict(out)
+
+
+class OembedXClient:
+    """Official oEmbed — the zero-cost, official fallback behind FxEmbed
+    (live-probed 2026-10). It can say three things and only three: the post
+    is here, here is the canonical byline, here is the text. No metrics,
+    ever — so the scorer's 'metrics_unreported' stamp speaks instead of a
+    invented zero. The pasted URL is the lookup key: this world's oEmbed
+    canonizes a wrong byline but needs one to stand, and it answers a
+    junk URL with a TIMELINE — which is not the submitted post."""
+
+    mode = "live"
+    OE_BASE = "https://publish.x.com/oembed"
+    ENT = (("&#39;", "'"), ("&quot;", "\""), ("&gt;", ">"), ("&lt;", "<"),
+           ("&mdash;", "—"), ("&ndash;", "–"), ("&hellip;", "…"), ("&amp;", "&"))
+
+    def __init__(self, settings, timeout=8, retries=1, cache_ttl=600,
+                 rpm=45, clock=None):
+        self.s = settings
+        self.timeout = float(timeout)
+        self.retries = int(retries)
+        self.cache_ttl = float(cache_ttl)
+        self.rpm = int(rpm)
+        self.clock = clock or time.time
+        self._hits = []
+        self._cache = {}
+
+    def resolve_post(self, post_id, url=None):
+        if not url:
+            raise XError("oembed needs the pasted URL (its lookup key)")
+        pid = str(post_id)
+        hit = self._cache.get((pid, url))
+        if hit and hit[0] > self.clock():
+            out = dict(hit[1])
+            out["cached"] = True
+            return out
+        body = _polite_get(
+            self.OE_BASE, "?url=" + urllib.parse.quote(url, safe="") + "&format=json",
+            self.timeout, self.retries, self._hits, self.rpm, self.clock, "oembed")
+        try:
+            payload = json.loads(body)
+        except ValueError:
+            raise XError("oembed unparseable (a 200 that isn't JSON)")
+        if not isinstance(payload, dict):
+            raise XError("oembed malformed")
+        html = payload.get("html") or ""
+        if "twitter-timeline" in html:
+            raise XError("oembed answered a timeline, not a post")
+        if pid not in (payload.get("url") or ""):
+            raise XError(f"oembed id mismatch: {pid} not in the returned URL")
+        m = re.search(r"<p[^>]*>(.*?)</p>", html, re.DOTALL)
+        if not m:
+            raise XError("oembed malformed: no post body")
+        author_url = payload.get("author_url") or ""
+        author = (author_url.rsplit("/", 1)[-1] if "://" in author_url else "").lower()
+        if not author:
+            raise XError("oembed malformed: no author byline")
+        text = re.sub(r"<[^>]+>", "", m.group(1))
+        for ent, ch in self.ENT:
+            text = text.replace(ent, ch)
+        out = dict(provider="oembed", post_id=pid, author=author, author_id=None,
+                   text=re.sub(r"\s+", " ", text).strip(),
+                   url=payload.get("url") or url, posted_at=None,
+                   metrics=dict(likes=None, replies=None, reposts=None, quotes=None,
+                                impressions=None, bookmarks=None),   # the whole point
+                   provided=[], verification="presence", fetched_at=self.clock())
+        self._cache[(pid, url)] = (out["fetched_at"] + self.cache_ttl, out)
+        return dict(out)
+
+
+class FallbackXClient:
+    """The zero-cost stack: FxEmbed first (full engagement truth), official
+    oEmbed behind it (presence only). Before anybody is told a post is gone,
+    the two providers agree it is — an FxEmbed 404 alone gets oEmbed's look,
+    and oEmbed's own 404 is the settled verdict. Any single provider's
+    trouble is provider trouble: fail closed, never a fabricated
+    verification, never an invented point."""
+
+    mode = "live"
+
+    def __init__(self, primary, backup):
+        self.p, self.b = primary, backup
+        if any(hasattr(c, "follows_username") for c in (primary, backup)):
+            self.follows_username = lambda handle: next(
+                c for c in (primary, backup)
+                if hasattr(c, "follows_username")).follows_username(handle)
+
+    def resolve_post(self, post_id, url=None):
+        try:
+            return self.p.resolve_post(post_id, url)
+        except XPostGone:
+            try:
+                return self.b.resolve_post(post_id, url)      # cross-check before a 'gone'
+            except XPostGone:
+                raise                                          # both agree: it is not there
+            except XError:
+                raise XError("gone-claim unconfirmed (oembed down too)")
+        except XError as prim_err:
+            try:
+                return self.b.resolve_post(post_id, url)
+            except XPostGone:
+                # the official eye sees no such post — belief over a flaky proxy
+                return None
+            except XError as bk_err:
+                raise XError(f"provider trouble: {prim_err}; {bk_err}")
+
+
+def _polite_get(base, path, timeout, retries, hits, rpm, clock, tag):
+    """One bounded-retry GET in the polite lane: 404 is a verdict, 429 is
+    pace, 5xx and transport get the one retry — and nothing else retries.
+    The self-imposed bucket lives a minute, so a surprise burst reads as
+    XRatelimited rather than as a hammering guest."""
+    url = f"{base}{path}"
+    last = f"{tag} failed"
+    for _ in range(retries + 1):
+        t = clock()
+        hits[:] = [h for h in hits if t - h < 60]
+        if len(hits) >= rpm:
+            raise XRatelimited(f"{tag} bucket full (politeness, self-imposed)")
+        hits.append(t)
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "paperboard/0.3"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                raise XPostGone(f"{tag} 404")
+            if e.code == 429:
+                raise XRatelimited(f"{tag} 429")
+            if e.code < 500:
+                raise XError(f"{tag} {e.code}")            # other 4xx: no retry, no drama
+            last = f"{tag} {e.code}"
+        except OSError as e:
+            last = f"{tag} unreachable: {e}"
+        time.sleep(0.4)
+    raise XError(last)
 
 
 def _iso_to_epoch(ts):

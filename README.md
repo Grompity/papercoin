@@ -138,6 +138,52 @@ fails outright (curl is unaffected) — ship a bundle (e.g. `/etc/ssl/cert.pem`)
 alongside `X_API_BEARER`, and the dev magic-link echo can never leak into
 `smtp` mode (the `link` key is stamped only in `mock`).
 
+## the zero-cost provider stack (2026-10, live-checked at this commit)
+
+the account path verifies posts through two free readers — no keys, no
+cookies, no wallet ceremony:
+
+- **FxEmbed** — `https://api.fxtwitter.com/{handle}/status/{id}` (the handle
+  slot is ignored by the service: any handle resolves by id and the answer
+  carries the canonical one). The only free source seen that carries
+  engagement whole: likes, replies, retweets, quotes, bookmarks, views, and an
+  exact `created_timestamp`. Numeric fields arrive as strings and are cast;
+  a missing key stays missing and a genuine `"0"` stays zero — the two never
+  blur. Its 404 is a JSON `tweet:null` envelope (a verdict), but a `200`
+  wearing HTML is the landing page, and a landing page is never a post.
+- **Official oEmbed** — `https://publish.x.com/oembed?url=…&format=json` (the
+  old `publish.twitter.com` host 301s here). It says three things and only
+  three: the post is here, this is the canonical byline, this is the text. No
+  metrics, ever — the scorer's `metrics_unreported` stamp speaks instead of
+  invented zeros. A wrong byline canonizes; a handleless URL 404s, and a junk
+  URL answers a TIMELINE, which is not the submitted post.
+
+the ladder (`FallbackXClient`) runs fx first; a lone fx 404 gets oEmbed's
+cross-check before anyone is told the post is gone, and two agreeing 404s are
+the settled absence (`post_not_found`, 404). fx's transient trouble (5xx —
+once-retried — garbage JSON, an id that is not the asked id, the self-imposed
+bucket) falls through to oEmbed and rows up as **presence**: eligible base
+points, reason `presence_verified`, and the row's `verification` column naming
+what it can honestly claim. Both providers down fails closed, naming both
+(`502 provider_unavailable`, no row, no points). Every submission records its
+provider, verification state, fetch time, and the exact metric snapshot that
+was scored.
+
+the follow gate went **advisory** (config `eligibility.followRequired:
+false`): no free provider can vouch for a follow, so automatic eligibility is
+a verified post + one identifier + the duplicate wall + the caps, and the
+audit line reads `advisory` — never a silent claim of `@paperusdc`. flip the
+flag and the old `no_follow`/`follow_deferred` semantics stand back up.
+
+reliability is local policy: 8-second timeouts, one bounded retry (5xx and
+transport only — a 404 and a 429 never retry), a TTL cache (300 s / 600 s), and
+a self-imposed one-minute bucket (30 fx / 45 oe) that answers `XRatelimited`
+before the provider ever has to. the duplicate wall sits BEFORE the wire, so a
+resubmit costs zero upstream calls and no point is awarded twice. (x.md —
+`x.pcstyle.dev/api/v1/posts` — stays an admin's-eye aid, its upstream
+Firecrawl credits were empty at probe time; the syndication feed remains a
+deprecation ghost.)
+
 ## update the links
 
 everything lives in `js/config.js`:
@@ -153,9 +199,12 @@ token CA: `E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk`
 
 ## the board's rules at a glance
 
-- a post is eligible when it carries an identifier (CA / `@paperusdc` / `$PAPER`)
-  **and** the author follows `@paperusdc`; a later follow is retroactive on
-  the next scan.
+- a post is eligible when the provider resolves it and its text carries an
+  identifier (CA / `@paperusdc` / `$PAPER`) — the follow on `@paperusdc` went
+  advisory in the 2026-10 zero-cost rules (`followRequired: false`); flip it
+  and the retroactive-gate semantics stand. presence-only verification (the
+  oEmbed lane) still rows up eligible, on base points alone, visibly stamped
+  `presence_verified`.
 - scoring is transparent (`pb-v1`, amended `pb-v1.1` after the 2026-10 live
   feed probe): base per post + per-engagement points, a diminishing
   impressions curve, duplicate + frequency zero-outs, a per-window cap — and

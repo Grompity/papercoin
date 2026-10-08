@@ -19,16 +19,19 @@ sys.path.insert(0, __file__.rpartition("/")[0])  # server/
 
 from paperboard import db as dbmod, http_app, service as svc  # noqa: E402
 from paperboard.settings import Settings                      # noqa: E402
-from paperboard.xapi import MockXClient, SyndicationXClient   # noqa: E402
+from paperboard.xapi import (MockXClient, SyndicationXClient, FXTwitterXClient,
+                             OembedXClient, FallbackXClient)             # noqa: E402
 
 
 def build():
     settings = Settings()
     database = dbmod.DB(settings.db_path)
-    # live mode runs on the syndication provider: public post verification,
-    # no X Connect, no per-user OAuth — the app bearer (when set) only
-    # strengthens the eligibility follow-gate.
-    x = MockXClient(settings) if settings.mock else SyndicationXClient(settings)
+    # live mode runs the zero-cost stack (2026-10): FxEmbed first for the
+    # engagement truth, official oEmbed behind it for presence-only proof —
+    # no X Connect, no per-user OAuth, no paid API, no wallet ceremony.
+    # (SyndicationXClient stays as the recorded historic route.)
+    x = MockXClient(settings) if settings.mock else \
+        FallbackXClient(FXTwitterXClient(settings), OembedXClient(settings))
     svc_ = svc.Service(database, x, settings)
     cid = svc_.ensure_competition()
     router = http_app.Router(svc_, settings, database, x)

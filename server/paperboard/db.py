@@ -155,6 +155,10 @@ CREATE TABLE IF NOT EXISTS submissions (
   points         REAL NOT NULL DEFAULT 0,
   metrics_json   TEXT NOT NULL DEFAULT '{}',
   score_json     TEXT,
+  -- how the row was verified: 'engagement' | 'presence'; NULL = a pre-state
+  -- legacy row. the metric snapshot rides metrics_json; the state is a column
+  -- so an admin can see, at a glance, what a row can honestly claim.
+  verification   TEXT,
   UNIQUE (competition_id, x_post_id),
   FOREIGN KEY (account_id) REFERENCES accounts(id),
   FOREIGN KEY (competition_id) REFERENCES competitions(id)
@@ -231,8 +235,10 @@ def _migrate(conn):
             ("sessions", "account_id", "INTEGER"),
             ("sessions", "expires_at", "REAL"),
             ("sessions", "last_seen_at", "REAL"),
-            ("posts", "account_id", "INTEGER")):
-        if table in {"users", "posts", "scans", "sessions"} and col not in cols(table):
+            ("posts", "account_id", "INTEGER"),
+            ("submissions", "verification", "TEXT")):
+        if table in {"users", "posts", "scans", "sessions", "submissions"} \
+                and col not in cols(table):
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
     # one real migration for pre-account databases: the X-era sessions table
     # declared user_id NOT NULL; an account seat needs it NULL. Rebuild, copy,
