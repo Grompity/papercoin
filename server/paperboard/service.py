@@ -9,7 +9,10 @@ import threading
 import time
 from datetime import date as _date, datetime as _dt, time as _time
 
+from .accounts import (hash_magic_token, new_magic_token, normalize_email,
+                       normalize_username, parse_post_url)
 from .eligibility import Eligibility, normalize_wallet
+from .mail import make_mailer
 from .prizes import estimate, tier_for
 from .scoring import normalize_text, score_post
 from .xapi import make_pkce, XError
@@ -36,6 +39,8 @@ class Service:
         self.metrics_cfg = dict(cfg.get("metrics", {}))
         self.budget_cfg = dict(cfg.get("budget", {}))
         self.costs = dict(cfg.get("apiCosts", {}))
+        self.acfg = dict(cfg.get("account", {}))     # the account layer's timing rules
+        self.mail = make_mailer(settings)            # provider boundary, mock by default
         self._inflight = set()
         self._scan_lock = threading.Lock()
         self._active_scans = 0
@@ -87,18 +92,25 @@ class Service:
         return uid
 
     def session_user(self, token):
+        """Connect-X-era seat: only rows without the account marker count —
+        an account session and an X session must never blur into each
+        other, whichever door is being knocked."""
         if not token:
             return None
         row = self.db.conn.execute(
-            "SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=?",
-            (token,)).fetchone()
+            "SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id"
+            " WHERE s.token=? AND s.account_id IS NULL", (token,)).fetchone()
         return dict(row) if row else None
 
     def new_session(self, user_id):
+        """Connect-X-era session (users table). The account layer has its
+        own helpers below; created_at is the epoch as float — the freshness
+        gate and the legacy rows both ride that one column."""
         import secrets
         token = secrets.token_hex(24)
-        self.db.conn.execute("INSERT INTO sessions VALUES(?,?,?)",
-                             (token, user_id, now()))
+        self.db.conn.execute(
+            "INSERT INTO sessions(token,user_id,created_at) VALUES(?,?,?)",
+            (token, user_id, float(now())))
         self.db.conn.commit()
         return token
 
@@ -110,6 +122,353 @@ class Service:
                              (addr, now(), user_id))
         self.db.conn.commit()
         return addr, None
+
+    # ---------------------------------------------------------------- accounts
+    # The PAPERBOARD account — not the X user — is the permanent identity.
+    # Everything below keys on the immutable account id; X rides along as the
+    # author printed on a submission, never as the account itself.
+
+    def _last_id(self):
+        return self.db.conn.execute("SELECT last_insert_rowid() AS i").fetchone()["i"]
+
+    def account_by_id(self, account_id):
+        row = self.db.conn.execute("SELECT * FROM accounts WHERE id=?",
+                                    (account_id,)).fetchone()
+        return dict(row) if row else None
+
+    def account_by_email(self, email):
+        row = self.db.conn.execute("SELECT * FROM accounts WHERE email=?",
+                                    (email,)).fetchone()
+        return dict(row) if row else None
+
+    def create_or_touch_account(self, raw_email):
+        """Returns (row, created, err). Same response shape whether the
+        email is new or known — the endpoint never says which emails
+        already have an account (no enumeration through this door)."""
+        email = normalize_email(raw_email)
+        if email is None:
+            return None, False, "invalid_email"
+        row = self.account_by_email(email)
+        t = now()
+        if row:
+            if row["status"] != "active":
+                return None, False, "account_closed"
+            self.db.conn.execute("UPDATE accounts SET updated_at=? WHERE id=?",
+                                 (t, row["id"]))
+            self.db.conn.commit()
+            return self.account_by_id(row["id"]), False, None
+        self.db.conn.execute(
+            "INSERT INTO accounts(email,created_at,updated_at) VALUES(?,?,?)",
+            (email, t, t))
+        self.db.conn.commit()
+        return self.account_by_id(self._last_id()), True, None
+
+    def issue_magic_link(self, account_id, at=None):
+        """Short-lived + single-use. The random token's storage form is the
+        sha256; the plaintext only rides out in the email link. A resend
+        inside the echo window returns the live link without a second
+        email — link spam is an attack like any other.
+        Returns (token, mailed)."""
+        t = now() if at is None else float(at)
+        window = float(self.acfg.get("magicResendSeconds", 45))
+        recent = self.db.conn.execute(
+            "SELECT token FROM magic_links WHERE account_id=? AND used_at IS NULL"
+            " AND expires_at>? AND created_at>? ORDER BY created_at DESC LIMIT 1",
+            (account_id, t, t - window)).fetchone()
+        if recent:
+            return recent["token"], False
+        ttl = float(self.acfg.get("magicLinkMinutes", 15))
+        token = new_magic_token()
+        self.db.conn.execute(
+            "INSERT INTO magic_links(token_hash,token,account_id,created_at,expires_at)"
+            " VALUES(?,?,?,?,?)",
+            (hash_magic_token(token), token, account_id, t, t + ttl * 60))
+        self.db.conn.commit()
+        return token, True
+
+    def consume_magic_link(self, token, at=None):
+        """Returns (account, reason). Unknown, already-burned, and stale
+        links are three distinct reasons behind one coarse answer; the
+        reason itself is audit, not a user-facing detail."""
+        t = now() if at is None else float(at)
+        if not token or not isinstance(token, str):
+            return None, "bad_link"
+        row = self.db.conn.execute(
+            "SELECT m.used_at, m.expires_at, m.account_id, a.status"
+            " FROM magic_links m JOIN accounts a ON a.id=m.account_id"
+            " WHERE m.token_hash=?", (hash_magic_token(token),)).fetchone()
+        if row is None:
+            return None, "bad_link"
+        if row["used_at"] is not None:
+            return None, "used_link"
+        if row["expires_at"] <= t:
+            return None, "expired_link"
+        if row["status"] != "active":
+            return None, "account_closed"
+        self.db.conn.execute("UPDATE magic_links SET used_at=? WHERE token_hash=?",
+                             (t, hash_magic_token(token)))
+        self.db.conn.execute(
+            "UPDATE accounts SET email_verified=1, last_login_at=?, updated_at=?"
+            " WHERE id=?", (t, t, row["account_id"]))
+        self.db.conn.commit()
+        return self.account_by_id(row["account_id"]), None
+
+    # ------------------------------------------------- account sessions
+    def account_new_session(self, account_id):
+        """An account seat leaves user_id NULL — the users FK is not a joke
+        to be winked at, and a null that can never join is a stronger
+        statement than a number that happens to collide with one."""
+        import secrets
+        token = secrets.token_hex(24)
+        t = now()
+        days = float(self.acfg.get("sessionDays", 30))
+        self.db.conn.execute(
+            "INSERT INTO sessions(token,account_id,created_at,expires_at,"
+            "last_seen_at) VALUES(?,?,?,?,?)",
+            (token, account_id, float(t), t + days * 86400, t))
+        self.db.conn.commit()
+        return token
+
+    def account_session(self, token, at=None):
+        """Resolves an account session, then keeps it honest: expired rows
+        are deleted on the spot (invalidation), a seen session slides its
+        window (renewal). Returns (account, meta) — meta.created rides the
+        login instant so the fresh-auth gate can ask 'did you just click a
+        magic link' and get a server-side answer, never a browser's."""
+        if not token:
+            return None, None
+        t = now() if at is None else float(at)
+        row = self.db.conn.execute(
+            "SELECT account_id, created_at, expires_at FROM sessions"
+            " WHERE token=? AND account_id IS NOT NULL", (token,)).fetchone()
+        if row is None:
+            return None, None
+        if row["expires_at"] is not None and row["expires_at"] <= t:
+            self.db.conn.execute("DELETE FROM sessions WHERE token=?", (token,))
+            self.db.conn.commit()
+            return None, None
+        account = self.account_by_id(row["account_id"])
+        if account is None or account["status"] != "active":
+            return None, None                       # closed account: no ghost seat
+        days = float(self.acfg.get("sessionDays", 30))
+        expires = row["expires_at"] or (t + days * 86400)
+        if expires - t < days * 86400 / 2:          # slide, don't spam writes
+            expires = t + days * 86400
+        self.db.conn.execute("UPDATE sessions SET expires_at=?, last_seen_at=?"
+                             " WHERE token=?", (expires, t, token))
+        self.db.conn.commit()
+        created = float(row["created_at"])
+        fresh_min = float(self.acfg.get("freshAuthMinutes", 15))
+        return account, dict(created=created, fresh=(t - created) <= fresh_min * 60)
+
+    def end_session(self, token):
+        if token:
+            self.db.conn.execute("DELETE FROM sessions WHERE token=?", (token,))
+            self.db.conn.commit()
+
+    # ---------------------------------------------------- onboarding + wallet
+    def onboard_account(self, account, username, wallet, at=None):
+        """The first-completion gate: a byline and the reward address, both
+        server-validated. No signature is ever asked for — an address, not
+        a permission."""
+        t = now() if at is None else float(at)
+        name = normalize_username(username)
+        if name is None:
+            return "bad_username"
+        clash = self.db.conn.execute(
+            "SELECT id FROM accounts WHERE lower(username)=lower(?) AND id<>?",
+            (name, account["id"])).fetchone()
+        if clash:
+            return "username_taken"
+        addr = normalize_wallet(wallet or "")
+        if addr is None:
+            return "invalid_solana_address"
+        self.db.conn.execute(
+            "UPDATE accounts SET username=?, wallet=?, wallet_effective_at=?,"
+            " onboarded_at=?, updated_at=? WHERE id=?",
+            (name, addr, t, t, t, account["id"]))
+        self.db.conn.execute(
+            "INSERT INTO wallet_audit(account_id,old_wallet,new_wallet,changed_at,"
+            "effective_at) VALUES(?,?,?,?,?)", (account["id"], None, addr, t, t))
+        self.db.conn.commit()
+        return None
+
+    def change_wallet(self, account, wallet, fresh, at=None):
+        """Account-settings wallet swap: authenticated (route) + freshly
+        authenticated (this gate — an attacker holding a warm session still
+        has to click a new magic link to move the money address). The new
+        address becomes reward-eligible only after the cooldown, so a
+        temporary account thief cannot instantly reroute a reward."""
+        t = now() if at is None else float(at)
+        if not fresh:
+            return None, "fresh_auth_required"
+        addr = normalize_wallet(wallet or "")
+        if addr is None:
+            return None, "invalid_solana_address"
+        if account.get("wallet") == addr:
+            return addr, None                       # same address: no audit churn
+        cool = float(self.acfg.get("walletCooldownMinutes", 60))
+        eff = t + cool * 60
+        self.db.conn.execute(
+            "UPDATE accounts SET wallet=?, wallet_effective_at=?, updated_at=?"
+            " WHERE id=?", (addr, eff, t, account["id"]))
+        self.db.conn.execute(
+            "INSERT INTO wallet_audit(account_id,old_wallet,new_wallet,changed_at,"
+            "effective_at) VALUES(?,?,?,?,?)",
+            (account["id"], account.get("wallet"), addr, t, eff))
+        self.db.conn.commit()
+        return addr, None
+
+    # ------------------------------------------------------------- submission
+    def submit_post(self, account, raw_url, competition_id, at=None):
+        """The paste-the-URL pipeline: parse → provider resolve → duplicate
+        wall → eligibility → server-side score → stored audit. The provider
+        (not the browser, not the pasted byline) says who wrote the post;
+        the account owns the submission whoever that author is — an
+        ownership claim can ride the same rows later without a rebuild."""
+        t = now() if at is None else float(at)
+        parsed = parse_post_url(raw_url)
+        if parsed is None:
+            return dict(ok=False, reason="bad_post_url")
+        post_id, _pasted_byline, fallback_url = parsed
+        midnight = _dt.combine(_date.today(), _time.min).timestamp()
+        cap = float(self.acfg.get("maxSubmissionsPerDay", 30))
+        today = self.db.conn.execute(
+            "SELECT COUNT(*) AS n FROM submissions"
+            " WHERE account_id=? AND submitted_at>=?", (account["id"], midnight)
+        ).fetchone()["n"]
+        if today >= cap:
+            return dict(ok=False, reason="submission_limit")
+        dup = self.db.conn.execute(
+            "SELECT account_id, points FROM submissions"
+            " WHERE competition_id=? AND x_post_id=?",
+            (competition_id, post_id)).fetchone()
+        if dup:
+            return dict(ok=False, reason="duplicate_submission",
+                        owner="self" if dup["account_id"] == account["id"] else "other",
+                        points=dup["points"])
+        try:
+            post = self.x.resolve_post(post_id)
+        except XError as e:
+            return dict(ok=False, reason="provider_unavailable", detail=str(e))
+        if post is None:
+            return dict(ok=False, reason="post_not_found")
+        handle = (post.get("author") or "").lower()
+        url = post.get("url") or fallback_url
+        if not handle:
+            url = fallback_url
+        follows = (self.x.follows_username(handle)
+                   if handle and hasattr(self.x, "follows_username") else None)
+        text = post.get("text") or ""
+        matched = self.elig.matched_identifier(text)
+        if follows is False:
+            eligible, reason = False, "no_follow"
+        else:                                   # unknown gate defers to the scan
+            eligible = matched is not None
+            reason = "ok" if eligible else "no_identifier"
+        metrics = dict(post.get("metrics") or {})
+        if eligible:
+            points, audit = score_post(metrics, self.scoring, {})
+        else:
+            points, audit = 0.0, dict(applied=["not_eligible"], contributions={})
+        audit["matched"] = matched
+        audit["follow"] = "yes" if follows else ("deferred" if follows is None else "no")
+        audit["provided"] = list(post.get("provided") or [])
+        audit["missing"] = [k for k in ("likes", "replies", "reposts", "quotes",
+                                        "impressions") if metrics.get(k) is None]
+        self.db.conn.execute(
+            "INSERT INTO submissions(account_id,competition_id,x_post_id,author_handle,"
+            "url,text,posted_at,submitted_at,verified,eligible,reason,points,"
+            "metrics_json,score_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (account["id"], competition_id, post_id, handle, url,
+             text, post.get("posted_at"), t, 1, int(eligible), reason, points,
+             json.dumps(metrics), json.dumps(audit)))
+        self.db.conn.commit()
+        return dict(ok=True, reason=reason, submission=dict(
+            id=self._last_id(), x_post_id=post_id, author=handle, url=url,
+            posted_at=post.get("posted_at"), submitted_at=t, eligible=eligible,
+            reason=reason, points=points, provided=audit["provided"],
+            missing=audit["missing"], matched=matched, text=text))
+
+    # --------------------------------------------------------------- dashboard
+    def dashboard(self, account, competition_id=None):
+        """Everything the account's own page prints. Every row is keyed by
+        the account id resolved from the session — never by an id the
+        client could have typed (no IDOR through this door)."""
+        aid = account["id"]
+        agg = self.db.conn.execute(
+            "SELECT COUNT(*) AS submitted,"
+            " SUM(CASE WHEN eligible THEN 1 ELSE 0 END) AS eligible_posts,"
+            " COALESCE(SUM(points),0) AS points"
+            " FROM submissions WHERE account_id=? AND competition_id=?",
+            (aid, competition_id)).fetchone()
+        grouped = [dict(user_id=r["account_id"], points=r["pts"])
+                   for r in self.db.conn.execute(
+                       "SELECT account_id, SUM(points) AS pts FROM submissions"
+                       " WHERE competition_id=? GROUP BY account_id",
+                       (competition_id,))]
+        ranked = sorted(grouped, key=lambda r: (-r["points"], r["user_id"]))
+        my_rank, prev_pts, rank = None, None, 0
+        for i, r in enumerate(ranked):
+            if r["points"] != prev_pts:
+                rank = i + 1
+                prev_pts = r["points"]
+            if r["user_id"] == aid:
+                my_rank = rank
+        est = estimate(ranked, self.prize).get(aid, dict(share_pct=0.0, share_est=0.0))
+        recent = [dict(x_post_id=r["x_post_id"], author=r["author_handle"],
+                       points=r["points"], eligible=bool(r["eligible"]),
+                       reason=r["reason"], submitted_at=r["submitted_at"])
+                  for r in self.db.conn.execute(
+                      "SELECT x_post_id,author_handle,points,eligible,reason,submitted_at"
+                      " FROM submissions WHERE account_id=? AND competition_id=?"
+                      " ORDER BY submitted_at DESC LIMIT 5", (aid, competition_id))]
+        rewards = [dict(r) for r in self.db.conn.execute(
+            "SELECT competition_id,wallet_address,amount,asset,status,created_at,"
+            "paid_at,reference FROM rewards WHERE account_id=?"
+            " ORDER BY created_at DESC", (aid,))]
+        audits = [dict(r) for r in self.db.conn.execute(
+            "SELECT old_wallet,new_wallet,changed_at,effective_at FROM wallet_audit"
+            " WHERE account_id=? ORDER BY changed_at DESC LIMIT 3", (aid,))]
+        return dict(
+            account=dict(id=aid, email=account["email"],
+                         email_verified=bool(account["email_verified"]),
+                         username=account["username"], status=account["status"],
+                         wallet=account["wallet"],
+                         wallet_effective_at=account["wallet_effective_at"],
+                         onboarded=account["onboarded_at"] is not None,
+                         created_at=account["created_at"],
+                         last_login_at=account["last_login_at"]),
+            points=agg["points"] or 0.0,
+            submitted=agg["submitted"] or 0,
+            verified_posts=agg["submitted"] or 0,
+            eligible_posts=agg["eligible_posts"] or 0,
+            rank=my_rank, share_pct=est["share_pct"], share_est=est["share_est"],
+            recent=recent, rewards=rewards, wallet_audit=audits,
+            competition_state=(self.competition_state(competition_id)
+                               if competition_id else "none"))
+
+    def submissions_view(self, account, competition_id):
+        """The account's own ledger of pasted posts — every row selected by
+        the account id (authorization is the WHERE clause; there is no route
+        where a client-supplied id gets trusted)."""
+        out = []
+        for r in self.db.conn.execute(
+                "SELECT * FROM submissions WHERE account_id=? AND competition_id=?"
+                " ORDER BY submitted_at DESC", (account["id"], competition_id)):
+            audit = json.loads(r["score_json"]) if r["score_json"] else {}
+            out.append(dict(
+                id=r["id"], x_post_id=r["x_post_id"], author=r["author_handle"],
+                url=r["url"], text=r["text"], posted_at=r["posted_at"],
+                submitted_at=r["submitted_at"], verified=bool(r["verified"]),
+                eligible=bool(r["eligible"]), reason=r["reason"],
+                points=r["points"], metrics=json.loads(r["metrics_json"] or "{}"),
+                provided=audit.get("provided", []), missing=audit.get("missing", []),
+                matched=audit.get("matched"), follow_gate=audit.get("follow"),
+                audit=dict(contributions=audit.get("contributions"),
+                           applied=audit.get("applied", []),
+                           version=audit.get("scoring_version"))))
+        return out
 
     # ------------------------------------------------------------------ scan
     def scan_user(self, user, competition_id, at=None, force=False):

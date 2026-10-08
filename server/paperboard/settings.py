@@ -53,6 +53,25 @@ class Settings:
         # scheduler on/off (cron-style: run `run.py --once` with PAPER_SCHEDULER=0)
         self.scheduler = _env("PAPER_SCHEDULER", "1") in ("1", "true", "yes")
 
+        # cookie hardening: production sets PAPER_SECURE_COOKIES=1 so the
+        # session cookie carries Secure alongside HttpOnly + SameSite=Lax.
+        self.secure_cookies = _env("PAPER_SECURE_COOKIES", "0") in ("1", "true", "yes")
+
+        # an inbox cannot follow a relative link — the magic URL that leaves
+        # the server is absolute, built from what the browser will see.
+        self.public_base = _env("PAPER_PUBLIC_BASE_URL", f"http://localhost:{self.port}")
+
+        # email provider: mock (default) or smtp — the real one needs the env,
+        # it never silently degrades to the mock (see mail.make_mailer).
+        self.email_provider = _env("PAPER_EMAIL_PROVIDER", "mock")
+        self.smtp = {
+            "host": _env("PAPER_SMTP_HOST"),
+            "port": _env("PAPER_SMTP_PORT"),
+            "user": _env("PAPER_SMTP_USER"),
+            "password": _env("PAPER_SMTP_PASSWORD"),
+            "from": _env("PAPER_EMAIL_FROM"),
+        }
+
     @property
     def pb(self):
         return self.raw["paperboard"]
@@ -74,4 +93,7 @@ class Settings:
                 for k in ("slug", "name", "description", "startsAt", "endsAt", "status")
             },
             "tiers": pb["tiers"],
+            # the account layer's printed rules (timings only — never secrets)
+            "account": pb.get("account", {}),
+            "emailMode": self.email_provider,
         }

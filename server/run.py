@@ -19,13 +19,16 @@ sys.path.insert(0, __file__.rpartition("/")[0])  # server/
 
 from paperboard import db as dbmod, http_app, service as svc  # noqa: E402
 from paperboard.settings import Settings                      # noqa: E402
-from paperboard.xapi import MockXClient, LiveXClient          # noqa: E402
+from paperboard.xapi import MockXClient, SyndicationXClient   # noqa: E402
 
 
 def build():
     settings = Settings()
     database = dbmod.DB(settings.db_path)
-    x = MockXClient(settings) if settings.mock else LiveXClient(settings)
+    # live mode runs on the syndication provider: public post verification,
+    # no X Connect, no per-user OAuth — the app bearer (when set) only
+    # strengthens the eligibility follow-gate.
+    x = MockXClient(settings) if settings.mock else SyndicationXClient(settings)
     svc_ = svc.Service(database, x, settings)
     cid = svc_.ensure_competition()
     router = http_app.Router(svc_, settings, database, x)
@@ -79,20 +82,29 @@ class Handler(BaseHTTPRequestHandler):
         out = self.server.router.dispatch(method, parsed.path, query, headers,
                                            cookies, body)
         status, payload, extra = out if len(out) == 3 else (out[0], out[1], None)
+        router = self.server.router
         self.send_response(status)
         self.send_header("Cache-Control", "no-cache")
         if isinstance(payload, dict):
+            flags = "Path=/; HttpOnly; SameSite=Lax"
+            if getattr(router.settings, "secure_cookies", False):
+                flags += "; Secure"
             if payload.get("session"):
+                days = int(router.s.acfg.get("sessionDays", 30))
                 self.send_header("Set-Cookie",
-                                 f"PBSD={payload['session']}; Path=/; HttpOnly; SameSite=Lax")
+                                 f"PBSD={payload['session']}; {flags};"
+                                 f" Max-Age={days * 86400}")
             elif payload.get("loggedOut"):
                 self.send_header("Set-Cookie", "PBSD=; Path=/; Max-Age=0")
+        if isinstance(extra, dict):            # route-level headers (Location, cookies…)
+            for hk, hv in extra.items():
+                self.send_header(hk, hv)
         if isinstance(payload, (dict, list)):
             blob = json.dumps(payload).encode()
             self.send_header("Content-Type", "application/json; charset=utf-8")
         else:
             blob = payload if isinstance(payload, bytes) else str(payload).encode()
-            ctype = extra if isinstance(extra, str) else "application/octet-stream"
+            ctype = extra if isinstance(extra, str) else "text/plain; charset=utf-8"
             self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(blob)))
         self.end_headers()

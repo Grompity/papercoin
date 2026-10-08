@@ -90,6 +90,31 @@ class FakeX:
                                                   name="Fakes", profile_image_url=""))
 
 
+class ShyX:
+    """Syndication-shaped double: resolves one known post but reports only
+    likes + replies. The service must score what exists and record the rest
+    as missing — never invent impressions, retweets, or quotes."""
+
+    mode = "mock"
+
+    def __init__(self, follows=True):
+        self.follows = follows
+
+    def resolve_post(self, post_id):
+        if post_id != "777777777":
+            return None
+        return dict(provider="syndication", post_id="777777777", author="shy",
+                    author_id=None, text="$paper shy but real",
+                    url="https://x.com/shy/status/777777777",
+                    posted_at=time.time() - 600,
+                    metrics=dict(likes=9, replies=2, reposts=None, quotes=None,
+                                 impressions=None),
+                    provided=["likes", "replies"])
+
+    def follows_username(self, handle):
+        return self.follows
+
+
 def fx_post(pid, author, ago, text, m=(0, 0, 0, 0, 0)):
     return dict(id=pid, author_id=author, text=text,
                 url=f"https://x.com/i/web/status/{pid}",
@@ -456,6 +481,210 @@ def main():
         str(payload)[:120])
     stt, payload = go2("GET", "/api/usage")
     check("P6 /api/usage is not public (401 without the token)", stt == 401, f"{stt}")
+
+    # ===== account + auth: the paperboard identity pivot (not X Connect) ===
+    def magic_from(j):                                 # the mock echoes its link
+        return (j.get("link") or "").split("token=")[-1]
+
+    JSONISH = {"content-type": "application/json"}
+    stt, payload = go("POST", "/api/account/start", body={"email": "grompity@paper.io"})
+    check("acct: start creates silently and echoes a mock link",
+          stt == 200 and payload.get("sent") and payload.get("link"))
+    tok = magic_from(payload or {})
+    stt, payload = go("POST", "/api/account/start", body={"email": "nope"})
+    check("acct: a shapeless email is 422, never a 500", stt == 422
+          and payload.get("error") == "invalid_email")
+
+    out = r.dispatch("GET", "/api/auth/magic", {"token": tok}, {}, {}, None)
+    check("auth: the magic link 302s to the board with a session cookie",
+          out[0] == 302 and out[2].get("Location") == "/#board"
+          and "PBSD=" in (out[2].get("Set-Cookie") or ""), str(out)[:90])
+    seat = out[2]["Set-Cookie"].split("PBSD=")[1].split(";")[0]
+    ck = {"PBSD": seat}
+    check("auth: the session cookie is HttpOnly + SameSite=Lax (Secure in prod)",
+          "HttpOnly" in out[2]["Set-Cookie"] and "SameSite=Lax" in out[2]["Set-Cookie"])
+    stt, payload = go("GET", "/api/auth/magic", {"token": tok})
+    check("auth: a burned link never burns twice (single use)",
+          stt == 401 and payload.get("error") == "used_link")
+    stt, payload = go("GET", "/api/auth/magic", {"token": "nonsense"})
+    check("auth: an unknown token answers before any account lookup",
+          stt == 401 and payload.get("error") == "bad_link")
+
+    stt, payload = go("GET", "/api/account")
+    check("acct: the dashboard is 401 for the seatless (no IDOR door)",
+          stt == 401 and payload.get("error") == "not_authenticated")
+    stt, payload = go("GET", "/api/account", cookies=ck)
+    acct = (payload or {}).get("account") or {}
+    check("acct: dashboard is account-first — email, never an X handle",
+          stt == 200 and acct.get("email") == "grompity@paper.io"
+          and acct.get("email_verified") and acct.get("username") is None
+          and not acct.get("onboarded"), str(acct)[:90])
+
+    stt, payload = go("POST", "/api/account/onboard", cookies=ck,
+                      headers=JSONISH, body={"username": "x!"})
+    check("acct: the byline is validated server-side",
+          stt == 422 and payload.get("error") == "bad_username")
+    stt, payload = go("POST", "/api/account/onboard", cookies=ck,
+                      headers=JSONISH, body={"username": "grompity", "wallet": "0OIl"})
+    check("acct: the wallet is a solana address, not just any paste",
+          stt == 422 and payload.get("error") == "invalid_solana_address")
+    stt, payload = go("POST", "/api/account/onboard", cookies=ck,
+                      headers=JSONISH, body={"username": "grompity", "wallet": CA})
+    check("acct: onboarding completes (username + wallet, no signature asked)",
+          stt == 200 and (payload.get("account") or {}).get("onboarded"), str(stt))
+    audit_n = database.conn.execute(
+        "SELECT COUNT(*) n FROM wallet_audit").fetchone()["n"]
+    check("acct: the onboarding wallet is recorded in the audit trail",
+          audit_n == 1, str(audit_n))
+    stt, payload = go("GET", "/api/account/submissions", cookies=ck)
+    check("acct: the submissions ledger starts empty",
+          stt == 200 and payload.get("submissions") == [])
+
+    stt, payload = go("POST", "/api/account/posts", cookies=ck,
+                      headers=JSONISH, body={"url": "hello"})
+    check("submit: not-a-URL is 400 before the provider is even asked",
+          stt == 400 and payload.get("error") == "bad_post_url")
+    stt, payload = go("POST", "/api/account/posts", cookies=ck,
+                      headers=JSONISH,
+                      body={"url": "https://x.com/degenledger/status/999999999999"})
+    check("submit: an unknown post is 404 (the mock never fabricates one)",
+          stt == 404 and payload.get("error") == "post_not_found")
+    stt, payload = go("POST", "/api/account/posts", cookies=ck,
+                      headers=JSONISH,
+                      body={"url": "https://twitter.com/whatever/status/m2?s=20#x"})
+    sub = (payload or {}).get("submission") or {}
+    check("submit: m2 verifies and the SERVER names the author (byline-independent)",
+          stt == 200 and sub.get("author") == "degenledger"
+          and sub.get("eligible") and sub.get("points", 0) > 0, str(sub)[:140])
+    check("submit: the stored URL is the normalized one",
+          sub.get("url") == "https://x.com/degenledger/status/m2", str(sub.get("url")))
+    stt, payload = go("POST", "/api/account/posts", cookies=ck, headers=JSONISH,
+                      body={"url": "https://x.com/degenledger/status/m2"})
+    check("submit: a duplicate hits the 409 wall (owner self)",
+          stt == 409 and payload.get("error") == "duplicate_submission"
+          and payload.get("owner") == "self")
+    stt, payload = go("POST", "/api/account/posts", cookies=ck, headers=JSONISH,
+                      body={"url": "https://x.com/chartwitch/status/m3"})
+    check("submit: identity rule — you may submit posts by OTHER handles",
+          stt == 200 and (payload.get("submission") or {}).get("author") == "chartwitch")
+    stt, payload = go("POST", "/api/account/posts", cookies=ck, headers=JSONISH,
+                      body={"url": "https://x.com/bidetbear/status/m8"})
+    sub8 = (payload or {}).get("submission") or {}
+    check("submit: the follow gate prints its reason (verified post, zero points)",
+          stt == 200 and not sub8.get("eligible") and sub8.get("reason") == "no_follow"
+          and sub8.get("points") == 0.0, str(sub8)[:120])
+    stt, payload = go("GET", "/api/account/submissions", cookies=ck)
+    subs = (payload or {}).get("submissions") or []
+    check("acct: the owner's ledger shows exactly my posts (auth rides the account id)",
+          stt == 200 and len(subs) == 3 and all("audit" in row0 for row0 in subs),
+          str(len(subs)))
+
+    stt, payload = go("POST", "/api/account/start", body={"email": "B@Paper.io"})
+    tokb = magic_from(payload or {})
+    outb = r.dispatch("GET", "/api/auth/magic", {"token": tokb}, {}, {}, None)
+    seatb = outb[2]["Set-Cookie"].split("PBSD=")[1].split(";")[0]
+    ckb = {"PBSD": seatb}
+    stt, payload = go("POST", "/api/account/posts", cookies=ckb, headers=JSONISH,
+                      body={"url": "https://x.com/degenledger/status/m2"})
+    check("submit: the duplicate wall is per-issue, not per-account (owner other)",
+          stt == 409 and payload.get("owner") == "other", f"{stt} {payload}")
+    stt, payload = go("POST", "/api/account/start", body={"email": "grompity@paper.io"})
+    check("auth: start answers identically for known emails (no enumeration)",
+          stt == 200 and payload.get("sent") and not payload.get("created"),
+          str(payload)[:90])
+    stt, payload = go("GET", "/api/account", cookies=ckb)
+    check("acct: emails are case-folded (B@Paper.io became b@paper.io)",
+          ((payload or {}).get("account") or {}).get("email") == "b@paper.io")
+    stt, payload = go("GET", "/api/account/submissions", cookies=ckb)
+    check("acct: no cross-contamination — your ledger is yours alone (IDOR)",
+          stt == 200 and payload.get("submissions") == [])
+
+    stt, payload = go("POST", "/api/account/wallet", cookies=ck, headers=JSONISH,
+                      body={"wallet": CA[::-1]})
+    check("wallet: a valid change rides the cooldown before rewards may ride it",
+          stt == 200 and (payload.get("wallet_effective_at") or 0) > time.time() + 50,
+          str(payload)[:90])
+    old = database.conn.execute(
+        "SELECT old_wallet FROM wallet_audit ORDER BY id DESC LIMIT 1").fetchone()["old_wallet"]
+    audit_n = database.conn.execute(
+        "SELECT COUNT(*) n FROM wallet_audit").fetchone()["n"]
+    check("wallet: changes are audited with the previous address preserved",
+          audit_n == 2 and old == CA, f"{audit_n}/{old}")
+    database.conn.execute("UPDATE sessions SET created_at=? WHERE token=?",
+                          (time.time() - 3600, seat))
+    database.conn.commit()
+    stt, payload = go("POST", "/api/account/wallet", cookies=ck, headers=JSONISH,
+                      body={"wallet": CA})
+    check("wallet: a stale seat must re-verify (fresh-auth gate answers 428)",
+          stt == 428 and payload.get("error") == "fresh_auth_required", f"{stt}")
+    stt, payload = go("POST", "/api/account/wallet", cookies=ck,
+                      headers={"content-type": "application/x-www-form-urlencoded"},
+                      body={"wallet": CA})
+    check("wallet: a form post cannot move account state (CSRF shape guard)",
+          stt == 415, f"{stt}")
+    stt, payload = go("POST", "/api/account/wallet", headers=JSONISH,
+                      body={"wallet": "0OIl"})
+    check("wallet: an anonymous change is 401 (authorization lives on the route)",
+          stt == 401 and payload.get("error") == "not_authenticated")
+
+    stt, payload = go("POST", "/api/account/start", body={"email": "grompity@paper.io"})
+    toke = magic_from(payload or {})
+    database.conn.execute("UPDATE magic_links SET expires_at=? WHERE token=?",
+                          (time.time() - 10, toke))
+    database.conn.commit()
+    stt, payload = go("GET", "/api/auth/magic", {"token": toke}, {}, {}, None)
+    check("auth: links expire (short-lived by config, enforced at the click)",
+          stt == 401 and payload.get("error") == "expired_link")
+    stt, payload = go("POST", "/api/account/start", body={"email": "grompity@paper.io"})
+    tok2 = magic_from(payload or {})                # expired link → a fresh send
+    sent_after_real_send = len(s.mail.sent)
+    stt, payload = go("POST", "/api/account/start", body={"email": "grompity@paper.io"})
+    tok3 = magic_from(payload or {})
+    check("mail: the resend window echoes the live link without a second send",
+          stt == 200 and tok2 == tok3 and payload.get("sent")
+          and len(s.mail.sent) == sent_after_real_send,
+          f"{tok2[:8]}… {sent_after_real_send}")
+    codes = [go("POST", "/api/account/start", body={"email": "spam@paper.io"})[0]
+             for _ in range(7)]
+    check("mail: magic sends are rate limited per inbox",
+          codes[-1] == 429 and all(c == 200 for c in codes[:-1]), str(codes))
+
+    stt, payload = go("GET", "/api/account", cookies=ck)
+    rw_seed = ((payload or {}).get("account") or {})
+    database.conn.execute(
+        "INSERT INTO rewards(account_id,competition_id,wallet_address,amount,asset,"
+        "status,created_at) VALUES(?,?,?,?,?,?,?)",
+        (rw_seed.get("id"), cid, rw_seed.get("wallet"), 1234.5, "$PAPER",
+         "pending", time.time()))
+    database.conn.commit()
+    stt, payload = go("GET", "/api/account", cookies=ck)
+    rw = (payload.get("rewards") or [{}])[0]
+    check("rewards: the ledger rides the account (snapshot wallet, status, amount)",
+          stt == 200 and rw.get("amount") == 1234.5 and rw.get("status") == "pending"
+          and rw.get("wallet_address") == rw_seed.get("wallet")
+          and payload.get("points", 0) > 0 and payload.get("rank") == 1
+          and "recent" in payload, str(rw)[:120])
+    stt, payload = go("POST", "/api/auth/logout", cookies=ck)
+    seats = database.conn.execute(
+        "SELECT COUNT(*) n FROM sessions WHERE token=?", (seat,)).fetchone()["n"]
+    stt2, _p2 = go("GET", "/api/account", cookies=ck)
+    check("auth: logout invalidates the session (a cookie without a row is nothing)",
+          stt == 200 and payload.get("loggedOut") and seats == 0 and stt2 == 401)
+
+    shy = ShyX()
+    stS, dS, sS, cidS = make_env2("SHY", shy)
+    accS, _cre, errS = sS.create_or_touch_account("shy@paper.io")
+    check("accounts: email validation runs before the database does",
+          errS is None and accS["email"] == "shy@paper.io"
+          and sS.create_or_touch_account("nope@nope@nope")[2] == "invalid_email")
+    tokS, _mailed = sS.issue_magic_link(accS["id"])
+    signed, why = sS.consume_magic_link(tokS)
+    resS = sS.submit_post(signed, "https://x.com/shy/status/777777777", cidS)
+    subS = resS.get("submission") or {}
+    check("syndication: only metrics the provider really reports are scored",
+          resS.get("ok") and subS.get("points", 0) > 0
+          and subS.get("missing") == ["reposts", "quotes", "impressions"]
+          and subS.get("provided") == ["likes", "replies"], str(subS)[:150])
 
     print("failures:", len(FAILURES))
     return len(FAILURES)

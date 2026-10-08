@@ -55,6 +55,48 @@
   font-family: var(--serif); font-weight: 800; font-size: clamp(1.25rem, 2.2vw, 1.7rem) }
 .p-idle p, .p-scan p, .p-none p, .p-err p { color: var(--cream-dim); font-size: .92rem }
 
+/* — the account doors (join → email → welcome → dash) — */
+.p-join, .p-email, .p-welcome, .p-dash { display: grid; gap: .9rem }
+.p-join h3, .p-email h3, .p-welcome h3 {
+  font-family: var(--serif); font-weight: 800; font-size: clamp(1.25rem, 2.2vw, 1.7rem) }
+.p-join p, .p-email p, .p-welcome p { color: var(--cream-dim); font-size: .92rem }
+.p-join__form, .p-dash__submit { display: flex; gap: .7em; flex-wrap: wrap }
+.p-welcome__fields { display: grid; gap: .6rem }
+.p-join input, .p-welcome input, .p-dash input {
+  flex: 1 1 240px; background: var(--ink); color: var(--cream);
+  border: 1px solid var(--line-2); border-radius: 8px; padding: .8em .9em;
+  font-family: var(--mono); font-size: .8rem; min-width: 0 }
+.p-join input::placeholder, .p-welcome input::placeholder, .p-dash input::placeholder { color: var(--cream-faint) }
+.p-join input:focus, .p-welcome input:focus, .p-dash input:focus { outline: none; border-color: var(--green) }
+.p-join__err { font-family: var(--mono); font-size: .66rem; letter-spacing: .12em;
+  color: var(--cream-faint); min-block-size: 1em }
+.p-email__link { margin-block-start: .2rem }
+
+/* the dash (one name, one rank, one number — the rest is lines) */
+.p-dash__head { display: flex; justify-content: space-between; align-items: baseline;
+  gap: .8em; flex-wrap: wrap }
+.p-dash__name { font-family: var(--serif); font-weight: 800;
+  font-size: clamp(1.3rem, 2.4vw, 1.8rem) }
+.p-dash__rank { font-family: var(--mono); font-size: .66rem; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--green) }
+.p-dash__swap { background: none; border: 0; padding: 0; margin-inline-start: .5em;
+  cursor: pointer; font-family: var(--mono); font-size: .56rem; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--cream-faint);
+  border-bottom: 1px dashed var(--line-2) }
+.p-dash__swap:hover { color: var(--green) }
+.p-dash__verdict { border-top: 1px dashed var(--line); padding-block-start: .7rem;
+  color: var(--cream-dim); font-size: .92rem }
+.p-dash__verdict[hidden] { display: none }
+.p-dash__verdict b { color: var(--green) }
+.p-dash__verdict.is-no { color: var(--tan) }
+.p-dash__ledger { display: grid; gap: .3rem; border-top: 1px solid var(--line);
+  padding-block-start: .6rem }
+.p-dash__ledger-head { font-family: var(--mono); font-size: .58rem; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--cream-faint); margin: .5em 0 .1em }
+.dash-line { color: var(--cream-dim); font-size: .9rem; padding-block: .15rem }
+.dash-line b.pos { color: var(--green) }
+.dash-line .dim, .dash-line.dim { color: var(--cream-faint) }
+
 /* wallet step */
 .p-wallet { display: grid; gap: .9rem }
 .p-wallet__form { display: flex; gap: .7em; flex-wrap: wrap }

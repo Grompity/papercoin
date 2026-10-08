@@ -23,24 +23,25 @@ export function Board() {
               post paper.<br><span class="line2">earn points.</span><br>climb the front page.
             </h2>
             <p class="board__lede" data-reveal>
-              qualify by posting about ${cfg.ticker} on X — the contract address,
-              <b>@paperusdc</b>, or <b>$paper</b> (any one of them). you must follow
-              <b>@paperusdc</b>. everything else is the server's business: metrics,
-              eligibility, points, rankings, reward estimates.
+              a PAPERBOARD account is an email and a magic link — no password,
+              no wallet extension, no X connect. paste a public X post; the
+              server reads it, gates it (an identifier — the CA, <b>@paperusdc</b>
+              or <b>$paper</b> — plus the follow rule), prints points, and keeps
+              the ledger. you bring posts; the math is the paper's.
             </p>
 
             <ol class="board__steps" data-reveal>
               <li class="board__step">
                 <span class="board__step-n">01</span>
-                <span><b>Connect X</b><span>proper OAuth, server-side. your secrets never touch this page.</span></span>
+                <span><b>Create a PAPERBOARD account</b><span>email in, magic link out, done. X is a byline we verify, not a login you need.</span></span>
               </li>
               <li class="board__step">
                 <span class="board__step-n">02</span>
-                <span><b>Drop a Solana address</b><span>no wallet connect, no signing, no seed phrase — just where prizes would land.</span></span>
+                <span><b>Paste a public X post</b><span>any post — yours or somebody else's. the server resolves the author, never the paste.</span></span>
               </li>
               <li class="board__step">
                 <span class="board__step-n">03</span>
-                <span><b>We scan your posts</b><span>discovery, follow-check, engagement metrics, points — all computed behind the API, never by you.</span></span>
+                <span><b>Drop a Solana address</b><span>no wallet connect, no signing, no seed phrase — just where rewards would land.</span></span>
               </li>
               <li class="board__step">
                 <span class="board__step-n">04</span>
@@ -49,9 +50,6 @@ export function Board() {
             </ol>
 
             <div class="board__ctas" data-reveal>
-              <button type="button" class="btn btn--solid" data-action="connect">
-                Connect X ${ICONS.x}
-              </button>
               <button type="button" class="btn btn--ghost" data-action="mock-login" hidden>
                 demo sign-in ${ICONS.x}
               </button>
@@ -78,37 +76,98 @@ export function Board() {
                 </div>
 
                 <div class="panel__state" data-state="idle">
-                  <div class="p-idle">
-                    <h3>Ready when you are.</h3>
-                    <p>Connect X and we'll run your recent posts through the gate.
-                       No wallet dance — the server does the heavy reading.</p>
-                    <div class="p-idle__cta">
-                      <button type="button" class="btn btn--solid" data-action="connect">
-                        Connect X ${ICONS.x}
-                      </button>
+                  <div class="p-join">
+                    <h3>Create your PAPERBOARD account.</h3>
+                    <p>Email in, magic link out. No password, no X connect,
+                       no wallet extension — the server does the reading.</p>
+                    <div class="p-join__form">
+                      <label class="sr" for="pb-email-input">Email</label>
+                      <input id="pb-email-input" type="email" inputmode="email" autocomplete="email"
+                             spellcheck="false" placeholder="you@internet.com" maxlength="254">
+                      <button type="button" class="btn btn--solid" data-action="join">Continue</button>
                     </div>
+                    <p class="p-join__err" data-slot="join-err" aria-live="polite"></p>
                   </div>
                 </div>
 
-                <div class="panel__state" data-state="connect">
-                  <div class="p-scan">
-                    <h3>Redirecting to X…</h3>
-                    <p>OAuth 2.0 — the handshake happens off this page.</p>
+                <div class="panel__state" data-state="email">
+                  <div class="p-email">
+                    <div class="p-idle__art"><img src="${cfg.poses.running}" alt="" aria-hidden="true" loading="lazy" decoding="async"></div>
+                    <h3>Check your email.</h3>
+                    <p>One link, short-lived, single use. Click it and this page
+                       will know you.</p>
+                    <p class="p-email__link" data-slot="magic-link" aria-live="polite"></p>
+                  </div>
+                </div>
+
+                <div class="panel__state" data-state="welcome">
+                  <div class="p-welcome">
+                    <h3>Welcome to PAPERBOARD.</h3>
+                    <div class="p-welcome__fields">
+                      <label class="sr" for="pb-username-input">Username</label>
+                      <input id="pb-username-input" type="text" autocomplete="nickname"
+                             spellcheck="false" placeholder="choose a username" maxlength="24">
+                      <label class="sr" for="pb-wallet-input">Solana reward wallet</label>
+                      <input id="pb-wallet-input" type="text" inputmode="text" autocomplete="off"
+                             spellcheck="false" placeholder="paste your Solana address" maxlength="48">
+                    </div>
+                    <button type="button" class="btn btn--solid" data-action="onboard">Enter PAPERBOARD</button>
+                    <p class="p-wallet__note">${ICONS.wallet}
+                       <span><b>Rewards will be sent to this Solana address.</b>
+                       only the public address — no connect, no signature, no seed phrase,
+                       no private key.</span></p>
+                    <p class="p-join__err" data-slot="onboard-err" aria-live="polite"></p>
+                  </div>
+                </div>
+
+                <div class="panel__state" data-state="dash">
+                  <div class="p-dash">
+                    <div class="p-dash__head">
+                      <h3 class="p-dash__name" data-slot="acct-name">…</h3>
+                      <span class="p-dash__rank" data-slot="acct-rank" aria-live="polite">—</span>
+                    </div>
+                    <div class="score">
+                      <span class="score__num" data-slot="points" aria-live="polite">0</span>
+                      <span class="score__cap">points · <span data-slot="acct-comp">—</span></span>
+                    </div>
+                    <div class="metrics" data-slot="acct-stats"><!-- filled by app --></div>
+
+                    <div class="p-dash__submit">
+                      <label class="sr" for="pb-submit-input">X post URL</label>
+                      <input id="pb-submit-input" type="text" inputmode="url" autocomplete="off"
+                             spellcheck="false" placeholder="https://x.com/…/status/…">
+                      <button type="button" class="btn btn--solid" data-action="submit-post">Verify post ${ICONS.x}</button>
+                    </div>
+                    <div class="p-dash__verdict" data-slot="submit-verdict" aria-live="polite" hidden></div>
+
+                    <div class="p-dash__ledger">
+                      <p class="p-dash__ledger-head">recent earnings</p>
+                      <div data-slot="acct-recent"><!-- filled by app --></div>
+                      <p class="p-dash__ledger-head">reward history</p>
+                      <div data-slot="acct-rewards"><!-- filled by app --></div>
+                    </div>
+
+                    <button type="button" class="btn btn--ghost" data-action="toggle-submissions"
+                            aria-expanded="false" aria-controls="pb-submissions">
+                      View my submissions ${ICONS.chevron}
+                    </button>
+                    <div class="breakdown" id="pb-submissions" hidden data-slot="submissions"><!-- filled by app --></div>
                   </div>
                 </div>
 
                 <div class="panel__state" data-state="wallet">
                   <div class="p-wallet">
-                    <h3>Where should prizes land?</h3>
+                    <h3>Where should rewards land?</h3>
                     <div class="p-wallet__form">
-                      <label class="sr" for="pb-wallet-input">Solana wallet address</label>
-                      <input id="pb-wallet-input" type="text" inputmode="text" autocomplete="off"
-                             spellcheck="false" placeholder="paste your Solana address" maxlength="48">
-                      <button type="button" class="btn btn--solid" data-action="save-wallet">Save</button>
+                      <label class="sr" for="pb-wallet-settings-input">Solana wallet address</label>
+                      <input id="pb-wallet-settings-input" type="text" inputmode="text" autocomplete="off"
+                             spellcheck="false" placeholder="new Solana address" maxlength="48">
+                      <button type="button" class="btn btn--solid" data-action="change-wallet">Save</button>
                     </div>
                     <p class="p-wallet__note">${ICONS.wallet}
-                       <span>only the <b>public address</b> — for prize delivery.
-                       we never ask for a signature, a seed phrase, or permission to touch your wallet.</span></p>
+                       <span>a wallet change waits out a cooldown before rewards
+                       may ride it — and needs a freshly clicked magic link.</span></p>
+                    <p class="p-join__err" data-slot="wallet-err" aria-live="polite"></p>
                   </div>
                 </div>
 
@@ -120,31 +179,12 @@ export function Board() {
                   </div>
                 </div>
 
-                <div class="panel__state" data-state="result">
-                  <div class="p-result">
-                    <div class="p-result__hero">
-                      <div class="score">
-                        <span class="score__num" data-slot="points" aria-live="polite">0</span>
-                        <span class="score__cap">points, computed by the server</span>
-                      </div>
-                      <div class="p-result__art"><img src="${cfg.poses.celebrate}" alt="" aria-hidden="true" loading="lazy" decoding="async"></div>
-                    </div>
-                    <div class="metrics" data-slot="metrics"><!-- filled by app --></div>
-                    <p class="status-line" data-slot="status" aria-live="polite"></p>
-                    <button type="button" class="btn btn--ghost" data-action="toggle-breakdown"
-                            aria-expanded="false" aria-controls="pb-breakdown">
-                      View scoring breakdown ${ICONS.chevron}
-                    </button>
-                    <div class="breakdown" id="pb-breakdown" hidden data-slot="breakdown"><!-- filled by app --></div>
-                  </div>
-                </div>
-
                 <div class="panel__state" data-state="none">
                   <div class="p-none">
                     <div class="p-idle__art"><img src="${cfg.poses.silly}" alt="Paper, shrugging at an empty front page" loading="lazy" decoding="async"></div>
                     <h3>No qualifying posts yet.</h3>
-                    <p>Post about ${cfg.ticker} — mention the CA, @paperusdc or $paper —
-                       and send us back through the scanner.</p>
+                    <p>Paste an X post about ${cfg.ticker} — mention the CA,
+                       @paperusdc or $paper — and watch the server think.</p>
                     <div class="p-idle__cta">
                       <button type="button" class="btn btn--pill" data-action="rescan">Scan again</button>
                     </div>

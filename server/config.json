@@ -97,7 +97,18 @@
     "ratelimit": {
       "apiPerMinute": 90,
       "scanPerTenMinutes": 6,
-      "leaderboardPerMinute": 30
+      "leaderboardPerMinute": 30,
+      "magicSendPerTenMinutes": 6,
+      "submitPerTenMinutes": 8
+    },
+
+    "account": {
+      "magicLinkMinutes": 15,
+      "magicResendSeconds": 45,
+      "sessionDays": 30,
+      "freshAuthMinutes": 15,
+      "walletCooldownMinutes": 60,
+      "maxSubmissionsPerDay": 30
     }
   }
 }

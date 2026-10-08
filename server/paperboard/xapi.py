@@ -1,11 +1,20 @@
 """X (Twitter) integration — adapter boundary.
 
-Every call into X goes through one interface (XClient), so an API migration
-only touches this file. Live mode talks to api.x.com/2; mock mode returns a
-deterministic demo feed and is always flagged so nobody mistakes it for prod.
+Every call into X goes through one interface, so an API migration only
+touches this file. PAPERBOARD's auth does NOT go through X: the account
+layer logs in by magic link. X enters at exactly two server-side points:
 
-OAuth: X OAuth 2.0 (web login) with PKCE. The client secret stays server-side;
-the frontend only sees a redirect URL.
+  * resolve_post(post_id)  — the syndication provider verifies a public,
+    user-pasted post. Public read, no user OAuth, no user token.
+  * follows_username(handle) — the eligibility follow-gate, best effort:
+    True / False / None ("unknown"), never a guess.
+
+SyndicationXClient is the currently-tested direction: public verification +
+the public metrics it actually reports (never invented — absent metrics
+stay None and are listed as missing). The older OAuth scan stack
+(MockXClient / LiveXClient) stays intact for the legacy Connect-X routes
+and for the scan pipeline; another provider can slot in behind the same
+resolve/follows interface without touching accounts, scoring, or the routes.
 """
 
 import base64
@@ -111,6 +120,37 @@ class MockXClient:
         out = [p for p in self._posts if p["id"] in ids]
         return out, dict(returned=len(out), more=False, next_token=None)
 
+    # -- submission interface (same shape SyndicationXClient returns) ------
+    def resolve_post(self, post_id):
+        """The pasted id is looked up in the scripted world only — the mock
+        never invents a post it was not told about (unknown ids → None,
+        honestly, never a synthesized pass)."""
+        for p in self._posts:
+            if p["id"] == post_id:
+                return self._shape(p)
+        return None
+
+    def follows_username(self, handle):
+        for u in self._users.values():
+            if u["username"].lower() == handle.lower():
+                return bool(u["follows_paper"])
+        return False            # unknown handles in the script world: gate off
+
+    def _shape(self, p):
+        pm = p.get("public_metrics") or {}
+        npm = p.get("non_public_metrics") or {}
+        author = (self._users.get(p["author_id"]) or {}).get("username") or ""
+        metrics = dict(likes=pm.get("like_count"), replies=pm.get("reply_count"),
+                       reposts=pm.get("retweet_count"), quotes=pm.get("quote_count"),
+                       impressions=npm.get("impression_count"))
+        return dict(
+            provider=self.mode, post_id=p["id"], author=author.lower(),
+            author_id=p.get("author_id"), text=p.get("text") or "",
+            url=f"https://x.com/{author.lower()}/status/{p['id']}",
+            posted_at=p.get("created_at"), metrics=metrics,
+            provided=[k for k, v in metrics.items() if v is not None],
+        )
+
     def exchange_code(self, code, verifier):
         uid = "mock-user-0001"
         return dict(
@@ -188,6 +228,37 @@ class LiveXClient:
         rows = [_map_post(d) for d in data.get("data") or []]
         return rows, dict(returned=len(rows), more=False, next_token=None)
 
+    # -- submission interface (the v2 app-token path, no user OAuth needed) --
+    def resolve_post(self, post_id):
+        rows, _meta = self.metrics_for([post_id])
+        if not rows:
+            return None
+        p = rows[0]
+        author = ""
+        try:                                            # author byline is print-only
+            author = (self.me(p["author_id"]) or {}).get("username") or ""
+        except XError:
+            pass
+        metrics = dict(likes=p["public_metrics"]["like_count"],
+                       replies=p["public_metrics"]["reply_count"],
+                       reposts=p["public_metrics"]["retweet_count"],
+                       quotes=p["public_metrics"]["quote_count"],
+                       impressions=p["non_public_metrics"]["impression_count"])
+        return dict(provider="v2", post_id=p["id"], author=author.lower(),
+                    author_id=p.get("author_id"), text=p["text"],
+                    url=p["url"], posted_at=p.get("created_at"),
+                    metrics=metrics,
+                    provided=[k for k, v in metrics.items() if v is not None])
+
+    def follows_username(self, handle):
+        acct = self.s.pb["eligibility"]["followAccount"]
+        try:
+            data = self._get(f"/users/by/username/{handle}/following",
+                             dict(usernames=acct, max_results="1"))
+        except XError:
+            return None                                 # gate defers, never guesses
+        return bool(data.get("data"))
+
     def authorize_url(self, state, code_challenge):
         q = urllib.parse.urlencode(dict(
             response_type="code", client_id=self.s.x_client_id,
@@ -223,6 +294,93 @@ class LiveXClient:
         return dict(access_token=tok["access_token"],
                     user=dict(id=me["id"], username=me["username"], name=me.get("name"),
                               profile_image_url=me.get("profile_image_url", "")))
+
+
+class SyndicationXClient:
+    """The syndication feed — public post verification with NO user OAuth and
+    no per-user token. One unauthenticated GET per pasted post; metrics are
+    whatever the feed honestly reports (likes, replies when present). What it
+    does not report stays None and is listed as missing — the scorer must
+    not pretend it exists. The follow-gate rides the app bearer when set."""
+
+    mode = "live"
+    SYND_URL = "https://cdn.syndication.twitter.com/tweet/f/json"
+
+    def __init__(self, settings):
+        self.s = settings
+
+    def resolve_post(self, post_id):
+        url = f"{self.SYND_URL}?id={post_id}&dnt=true"
+        req = urllib.request.Request(url, headers={"User-Agent": "paperboard/0.2"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                payload = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            raise XError(f"syndication {e.code}")
+        except OSError as e:
+            raise XError(f"syndication unreachable: {e}")
+        if not payload:
+            return None                                  # gone-tweets arrive {}
+        t = payload.get("tweet") or {}
+        if not t or t.get("inaccessible"):
+            return None
+        pm = t.get("public_metrics") or t               # accept both feed shapes
+        def metric(*names):
+            for n in names:
+                v = pm.get(n)
+                if isinstance(v, int):
+                    return v
+            return None
+        user = (t.get("user") or {})
+        created = t.get("created_at")
+        posted = None
+        if isinstance(created, (int, float)):            # epoch ms on this feed
+            posted = float(created) / 1000
+        elif isinstance(created, str):
+            try:
+                posted = _iso_to_epoch(created)
+            except (ValueError, TypeError):
+                pass
+        metrics = dict(likes=metric("favorite_count", "like_count"),
+                       replies=metric("conversation_count", "reply_count"),
+                       reposts=metric("retweet_count"),
+                       quotes=metric("quote_count"),
+                       impressions=metric("impression_count"))
+        author = (user.get("screen_name") or user.get("username") or "").lower()
+        pid = str(t.get("id_str") or t.get("id") or post_id)
+        return dict(provider="syndication", post_id=pid, author=author,
+                    author_id=str(user.get("id_str") or user.get("id") or "") or None,
+                    text=t.get("text") or "",
+                    url=f"https://x.com/{author}/status/{pid}",
+                    posted_at=posted, metrics=metrics,
+                    provided=[k for k, v in metrics.items() if v is not None])
+
+    def follows_username(self, handle):
+        """The gate rides the v2 app token (one small GET). No bearer, or a
+        404 handle, or transport trouble — all answer None ('unknown'), which
+        defers the gate to the scan instead of faking a verdict."""
+        if not self.s.x_bearer:
+            return None
+        try:
+            v2 = LiveXClient(self.s)
+            return v2.follows_username(handle)
+        except XError:
+            return None
+
+    # the Connect-X-era scan pipeline belongs to the v2 clients; on this
+    # provider it degrades with a clear reason instead of an AttributeError
+    def me(self, user_id):
+        raise XError("scan pipeline needs the live v2 client")
+
+    def follows_paper(self, user_id):
+        raise XError("scan pipeline needs the live v2 client")
+
+    def recent_posts(self, user_id, since, start_time=None, token=None,
+                      max_results=50):
+        raise XError("scan pipeline needs the live v2 client")
+
+    def metrics_for(self, ids):
+        raise XError("scan pipeline needs the live v2 client")
 
 
 def _iso_to_epoch(ts):

@@ -1,8 +1,10 @@
 /* ============================================================
    PAPERBOARD — the app.
    a small state machine on top of a server that holds all the
-   authority. the frontend only ever sends: an opaque code, a
-   public wallet address, and its own impatience.
+   authority. the frontend only ever sends: an email, a pasted
+   post URL, a public wallet address, and its own impatience.
+   identity is the PAPERBOARD account — X is a byline the server
+   reads, never a login the user needs.
    ============================================================ */
 
 import { CONFIG } from "./config.js";
@@ -15,8 +17,8 @@ const panel = () => $("#pb-panel");
 const boardEl = () => $("#pb-board");
 
 export let S = {                       /* app state (client-side facts only) */
-  mode: null, cfg: null, me: null, board: null, comps: null,
-  breakdown: null, breakdownLoaded: false,
+  mode: null, cfg: null, dash: null, board: null, comps: null,
+  submissions: null, submissionsLoaded: false,
 };
 
 /* — fetch helpers (JSON only; never sends scores upward) — */
@@ -52,6 +54,14 @@ const fmtDay = (epoch) => {
     { month: "short", day: "numeric", timeZone: "UTC" });
 };
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const esc = (s) => (s || "").replace(/[&<>"`]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "`": "&#96;" }[c]));
+const shortAddr = (w) => (w ? `${w.slice(0, 4)}…${w.slice(-4)}` : "—");
+const errSlot = (name, text) => {
+  const el = $(`[data-slot="${name}"]`);
+  if (el) { el.textContent = text || ""; if (text) { el.style.color = "var(--tan)"; } }
+};
+
 /* — the state machine — */
 function setState(name) {
   const p = panel();
@@ -65,7 +75,7 @@ function setMode(text, cls = "") {
   if (slot) slot.innerHTML = `<b class="stamp ${cls}">${text}</b>`;
 }
 
-/* — boot: config → me → leaderboard (server is the source of truth) — */
+/* — boot: config → account → leaderboard (server is the source of truth) — */
 export async function boot() {
   try {
     const cfg = await get("/api/config");
@@ -73,12 +83,12 @@ export async function boot() {
     paintConfig(cfg);
     get("/api/competitions").then((j) => { S.comps = j; paintCompetitions(); })
       .catch(() => {});
-    const meRes = await get("/api/me").catch(() => null);
-    S.me = meRes;
-    const lb = await get("/api/leaderboard").catch((e) => (e.status === 503 || e.status === 404 ? null : null));
+    const dash = await get("/api/account").catch((e) => (e.status === 401 ? null : null));
+    S.dash = dash;
+    const lb = await get("/api/leaderboard").catch(() => null);
     S.board = lb;
     paintBoard();
-    await resolveMe();
+    resolveAccount();
   } catch (e) {
     console.warn('[pb] boot caught:', e && e.constructor && e.constructor.name, (e||{}).message, (e||{}).stack ? String(e.stack).split(String.fromCharCode(10))[1] : '');
     if (e instanceof TypeError) {            /* network down — off press */
@@ -126,7 +136,8 @@ function paintCompetitions() {
   state.textContent = note;
 }
 
-/* — the front page table — */
+/* — the front page table (X handles on the snapshot; the account rides the
+     board via its posts — the snapshot decides who prints) — */
 function paintBoard() {
   const mount = boardEl(); if (!mount) return;
   const b = S.board;
@@ -149,16 +160,14 @@ function paintBoard() {
     setFPFoot(b, true);
     return;
   }
-  const you = S.me && S.me.connected && S.me.handle;
   const rows = b.rows.map((r) => {
     const mv = r.movement == null || r.movement === 0 ? ""
       : `<span class="mv ${r.movement > 0 ? "up" : "down"}">${r.movement > 0 ? "▲" : "▼"}${Math.abs(r.movement)}</span>`;
     return `
-    <tr class="${r.rank === 1 ? "tr-front" : (r.rank <= 3 ? "tr-head" : "")} ${you && r.user.handle === you ? "is-you" : ""}">
+    <tr class="${r.rank === 1 ? "tr-front" : (r.rank <= 3 ? "tr-head" : "")}">
       <td class="cell-rank rk">${r.rank}${mv}</td>
       <td class="cell-name nm">
         <a class="nm__handle" href="https://x.com/${r.user.handle}" target="_blank" rel="noopener noreferrer">@${r.user.handle}</a>
-        ${r.user.handle === you ? `<span class="nm__sub" style="color:var(--green)"> · that's you</span>` : ""}
       </td>
       <td class="num num--pts" data-label="Points">${fmt(r.points, 1)}</td>
       <td class="num" data-label="Posts">${r.posts}</td>
@@ -177,7 +186,6 @@ function paintBoard() {
     </div>`;
   setFPFoot(b, false);
 }
-const tierTone = (label) => label === "FRONT PAGE" ? "gold" : label === "HEADLINE" ? "silver" : "print";
 
 function setFPFoot(b, demo) {
   const gen = $('[data-set="fp-generated"]'), tot = $('[data-set="fp-totals"]'),
@@ -189,48 +197,62 @@ function setFPFoot(b, demo) {
   if (st) st.textContent = `state: ${(b && b.state) ?? (demo ? "demo" : "—")}`;
 }
 
-/* mini preview inside the board panel */
-
-/* — resolve me → decide the panel state — */
-async function resolveMe() {
-  const me = S.me;
-  if (!me || !me.connected) { setState("idle"); return; }
-  if (me.competition_state && me.competition_state !== "live") {
-    S.lastState = "result"; paintResult(); await loadBreakdown(false); renderBreakdown();
-    setState("result"); paintResult(true); return;
-  }
-  if (!me.wallet) { setState("wallet"); return; }
-  if (me.points > 0) { setState("result"); paintResult(); await loadBreakdown(false); renderBreakdown(); }
-  else if (me.scanned) setState("none");
-  else await doScan();
+/* — resolve account → decide the panel state — */
+async function resolveAccount() {
+  const out = $$("[data-action='logout']"); out.forEach((b) => (b.hidden = !S.dash));
+  if (!S.dash) { setState("idle"); return; }
+  if (!S.dash.account || !S.dash.account.onboarded) { setState("welcome"); return; }
+  setState("dash");
+  await refreshAccount(false);
 }
 
-/* — the me → result rendering — */
-function paintResult(isFinal = true) {
-  const me = S.me; if (!me) return;
+/* pull the account view again (after onboarding / submitting) and paint */
+async function refreshAccount(animate = true) {
+  try { S.dash = await get("/api/account"); }
+  catch { S.dash = null; setState("idle"); return; }
+  S.submissionsLoaded = false;
+  paintDash(animate);
+}
+
+/* — the dashboard render (typography, not cards) — */
+function paintDash(animate = true) {
+  const d = S.dash; if (!d) return;
+  const acct = d.account || {};
+  const name = $('[data-slot="acct-name"]');
+  if (name) name.textContent = acct.username ? `@${acct.username}` : "PAPERBOARD";
+  const rank = $('[data-slot="acct-rank"]');
+  if (rank) rank.textContent = d.rank
+    ? `#${d.rank} GLOBAL`
+    : "unranked — the server hasn't seen a qualifying post yet";
+  const comp = $('[data-slot="acct-comp"]');
+  if (comp) comp.textContent = COMP_STATE_LABEL[d.competition_state] || "—";
   const pts = $('[data-slot="points"]');
   if (pts) {
-    const to = me.points || 0;
-    if (reduced() || !isFinal) pts.textContent = fmt(to, 1);
+    const to = d.points || 0;
+    if (reduced() || !animate) pts.textContent = fmt(to, 1);
     else countUp(pts, to);
   }
   const unit = S.cfg?.prize?.unit || S.cfg?.prize?.type || "";
-  const slot = $('[data-slot="metrics"]');
-  if (slot) slot.innerHTML = `
-    <div class="metric"><span class="metric__k">Qualifying posts</span><span class="metric__v">${fmt(me.qualifying_posts)}</span></div>
-    <div class="metric"><span class="metric__k">Rank</span><span class="metric__v">${me.rank ?? '<span class="u">next snapshot</span>'}</span></div>
-    <div class="metric"><span class="metric__k">Receipts (L+R+RP+Q)</span><span class="metric__v">${fmt(me.engagement)}</span></div>
-    <div class="metric"><span class="metric__k">Est. share</span><span class="metric__v">${me.share_pct ? me.share_pct.toFixed(2) + "%" : "—"} <span class="u">${fmt(me.share_est)} ${unit}</span></span></div>`;
-  const st = $('[data-slot="status"]');
-  if (st) {
-    const followChip = me.follows_paper
-      ? '<span class="tag" style="color:var(--green);border-color:var(--green-soft)">following @paperusdc</span>'
-      : '<span class="tag" style="color:var(--tan);border-color:var(--tan)">not following — points paused</span>';
-    const stateChip = { live: "COMPETITION LIVE", upcoming: "OPENS SOON", ended: "PRINT CLOSED", closed: "ARCHIVED" }[me.competition_state] || "—";
-    st.innerHTML = `<span>${S.me.handle ? "@" + S.me.handle : ""}</span> ${followChip} <span>${stateChip}</span>`;
-  }
-  /* you-note rides the full table (is-you) — the mini lane is gone */
+  const stats = $('[data-slot="acct-stats"]');
+  if (stats) stats.innerHTML = `
+    <div class="metric"><span class="metric__k">Submitted</span><span class="metric__v">${fmt(d.submitted)}</span></div>
+    <div class="metric"><span class="metric__k">Verified</span><span class="metric__v">${fmt(d.verified_posts)}</span></div>
+    <div class="metric"><span class="metric__k">Est. reward</span><span class="metric__v">${d.share_est ? `${fmt(d.share_est)} <span class="u">${unit}</span>` : '<span class="u">—</span>'}</span></div>
+    <div class="metric"><span class="metric__k">Reward wallet</span><span class="metric__v">${esc(shortAddr(acct.wallet))}
+      <button type="button" class="p-dash__swap" data-action="open-wallet">change</button></span></div>`;
+  const recent = $('[data-slot="acct-recent"]');
+  if (recent) recent.innerHTML = (d.recent && d.recent.length)
+    ? d.recent.map((r) => `<p class="dash-line"><b class="${r.points > 0 ? "pos" : "dim"}">${r.points > 0 ? "+" : ""}${fmt(r.points, 1)}</b> pts
+       · <a href="${esc(rUrl(r))}" target="_blank" rel="noopener noreferrer">@${esc(r.author)}</a>
+       <span class="dim">${r.eligible ? "" : `· ${esc(r.reason.replace("_", " "))}`}</span></p>`).join("")
+    : `<p class="dash-line dim">nothing yet — paste a post up top.</p>`;
+  const rewards = $('[data-slot="acct-rewards"]');
+  if (rewards) rewards.innerHTML = (d.rewards && d.rewards.length)
+    ? d.rewards.map((w) => `<p class="dash-line"><b>${fmt(w.amount, 1)} ${esc(w.asset)}</b>
+       · ${esc(w.status)} <span class="dim">to ${esc(shortAddr(w.wallet_address))}</span></p>`).join("")
+    : `<p class="dash-line dim">no rewards on the ledger yet — the contest is still printing.</p>`;
 }
+const rUrl = (r) => (r.x_post_id ? `https://x.com/i/status/${r.x_post_id}` : "#");
 
 function countUp(el, to) {
   const t0 = performance.now(), dur = 900;
@@ -243,96 +265,173 @@ function countUp(el, to) {
   requestAnimationFrame(step);
 }
 
-/* — the breakdown (server's audit trail, rendered, never re-divined) — */
-async function loadBreakdown(refresh = true) {
-  if (!S.me?.connected) return;
-  if (S.breakdownLoaded && !refresh) return;
+/* — the account's own ledger (server audit, rendered, never re-divined) — */
+async function loadSubmissions(refresh = true) {
+  if (!S.dash) return;
+  if (S.submissionsLoaded && !refresh) return;
   try {
-    const j = await get("/api/me/posts");
-    S.breakdown = j.posts; S.breakdownLoaded = true;
-  } catch { S.breakdown = []; }
+    const j = await get("/api/account/submissions");
+    S.submissions = j.submissions; S.submissionsLoaded = true;
+  } catch { S.submissions = []; }
 }
-function renderBreakdown() {
-  const mount = $('[data-slot="breakdown"]'); if (!mount) return;
-  const posts = S.breakdown || [];
+function renderSubmissions() {
+  const mount = $('[data-slot="submissions"]'); if (!mount) return;
+  const posts = S.submissions || [];
   mount.innerHTML = posts.length ? posts.map((p) => {
     const c = p.audit?.contributions || {};
     const flags = [];
-    if (p.matched) flags.push(`<span class="tag bd-flag">${p.matched === CONFIG.contractAddress ? "CA" : p.matched}${p.followed ? " · following" : ""}</span>`);
-    if (p.reason && p.reason !== "ok") flags.push(`<span class="tag tag--off bd-flag">${p.reason.replace("_", " ")}</span>`);
-    (p.audit?.applied || []).forEach((a) => flags.push(`<span class="tag tag--off bd-flag">${a.replace("_", " ")}</span>`));
+    if (p.matched) flags.push(`<span class="tag bd-flag">${p.matched === CONFIG.contractAddress ? "CA" : esc(p.matched)}</span>`);
+    if (p.follow_gate) flags.push(`<span class="tag bd-flag">follow: ${esc(p.follow_gate)}</span>`);
+    if (p.reason && p.reason !== "ok") flags.push(`<span class="tag tag--off bd-flag">${esc(p.reason.replace("_", " "))}</span>`);
+    (p.audit?.applied || []).forEach((a) => flags.push(`<span class="tag tag--off bd-flag">${esc(a.replace("_", " "))}</span>`));
+    const missing = (p.missing || []).length
+      ? `<div class="bd-cell"><dt>not reported</dt><dd class="neg">${esc((p.missing || []).join(" · "))}</dd></div>` : "";
     return `
     <article class="bd-post ${p.points ? "" : "is-no"}">
       <div class="bd-post__head">
-        <p class="bd-post__text"><a href="${p.url}" target="_blank" rel="noopener noreferrer">${esc(p.text)}</a></p>
+        <p class="bd-post__text"><a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.text.slice(0, 90)) || p.x_post_id}</a></p>
         <span class="bd-post__pts">${fmt(p.points, 1)} pts</span>
       </div>
       <dl class="bd-grid">
-        ${["impressions", "likes", "replies", "reposts", "quotes"].map((k) =>
-          `<div class="bd-cell"><dt>${k}</dt><dd>${fmt(p.metrics[k])}${c && (c[k] || c[k === "impressions" ? "impressions" : k]) ? ` <span class="u" style="color:var(--green)">+${fmt(c[k === "impressions" ? "impressions" : k])}</span>` : ""}</dd></div>`).join("")}
-        <div class="bd-cell"><dt>posted</dt><dd>${fmtTime(p.posted_at)}</dd></div>
-        ${!p.points && p.reason !== "ok" ? `<div class="bd-cell"><dt>verdict</dt><dd class="neg">${p.followed ? "no identifier" : "no follow"}</dd></div>` : ""}
+        ${["likes", "replies", "reposts", "quotes", "impressions"].map((k) =>
+          `<div class="bd-cell"><dt>${k}</dt><dd>${p.metrics[k] == null ? "—" : fmt(p.metrics[k])}${p.metrics[k] != null && c[k] ? ` <span class="u" style="color:var(--green)">+${fmt(c[k])}</span>` : ""}</dd></div>`).join("")}
+        ${missing}
+        <div class="bd-cell"><dt>author</dt><dd>@${esc(p.author) || "—"}</dd></div>
       </dl>
       <div class="bd-audit">${flags.join("")}</div>
     </article>`;
-  }).join("") : `<p class="board__lede">Nothing on the wire yet. post about PAPER and scan again.</p>`;
+  }).join("") : `<p class="board__lede">Nothing on the wire yet. paste an X post up top.</p>`;
 }
-const esc = (s) => (s || "").replace(/[&<>"`]/g, (c) =>
-  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "`": "&#96;" }[c]));
 
-/* — actions — */
-async function doScan() {
-  setState("scan");
+/* — the submit flow (the board's one real verb) — */
+function verdict(msg, good) {
+  const slot = $('[data-slot="submit-verdict"]');
+  if (!slot) return;
+  slot.hidden = false;
+  slot.className = `p-dash__verdict ${good ? "is-yes" : "is-no"}`;
+  slot.innerHTML = msg;
+}
+async function doSubmit() {
+  const input = $("#pb-submit-input");
+  const v = (input?.value || "").trim();
+  if (!v) { verdict("paste a public X post URL first.", false); return; }
+  verdict("the server reads…", true);
   try {
-    const j = await post("/api/me/scan");
-    S.me = { connected: true, ...strip(j) };
+    const j = await post("/api/account/posts", { url: v });
+    const s = j.submission || {};
+    const missing = (s.missing || []).length
+      ? ` <span class="dim">(${s.missing.length} metrics not reported — not scored)</span>` : "";
+    const verdictMsg = s.eligible
+      ? `VERIFIED ✓ — post by @${esc(s.author)} · <b>+${fmt(s.points, 1)} POINTS</b>${missing}`
+      : `on the wire · <b>0 POINTS</b> — ${esc(s.reason.replace("_", " "))}`;
+    verdict(verdictMsg, !!s.eligible);
+    input.value = "";
+    await refreshAccount(true);
     S.board = await get("/api/leaderboard").catch(() => S.board);
     paintBoard();
-    if (S.me.qualifying_posts > 0 && S.me.points > 0) {
-      setState("result"); paintResult(); await loadBreakdown(true); renderBreakdown();
-    } else setState("none");
-  } catch { setState("err"); $('[data-slot="err"]').textContent = "the scanner bailed (429 rate limit or X trouble). one more go?"; }
+  } catch (e) {
+    const code = e.payload?.error || "the provider bailed";
+    const msg = {
+      duplicate_submission: `that post is already on the board${e.payload?.owner === "self" ? " — yours" : ""}.`,
+      post_not_found: "no such post out there (or the provider can't see it).",
+      bad_post_url: "that doesn't read like an X post URL.",
+      submit_rate_limited: "slow hands — the paste line has a pace.",
+      submission_limit: "a full day of paste. try tomorrow.",
+      provider_unavailable: "the syndication feed blinked. try again.",
+    }[code] || code;
+    verdict(esc(msg), false);
+  }
 }
-const strip = (j) => { const { scan, ...rest } = j; return rest; };
 
-async function connect() {
-  const p = panel(); p.dataset.state = "connect";
+/* — actions — */
+async function doJoin() {
+  const input = $("#pb-email-input");
+  const v = (input?.value || "").trim();
+  errSlot("join-err", "");
+  if (!v) { errSlot("join-err", "an email first."); return; }
+  try {
+    const j = await post("/api/account/start", { email: v });
+    setState("email");
+    const slot = $('[data-slot="magic-link"]');
+    if (slot) slot.innerHTML = j.link
+      ? `<a class="btn btn--pill" href="${esc(j.link)}">open the magic link →</a>` : "";
+  } catch (e) {
+    const msg = { invalid_email: "that doesn't read like an email.",
+                  magic_rate_limited: "the mail door has a pace — breathe.",
+                  account_closed: "that account is closed." }[e.payload?.error]
+                || e.payload?.error || "the mail door stuck.";
+    errSlot("join-err", msg);
+  }
+}
+
+async function doOnboard() {
+  const username = ($("#pb-username-input")?.value || "").trim();
+  const wallet = ($("#pb-wallet-input")?.value || "").trim();
+  errSlot("onboard-err", "");
+  try {
+    S.dash = await post("/api/account/onboard", { username, wallet });
+    setState("dash");
+    await refreshAccount(true);
+  } catch (e) {
+    const msg = { bad_username: "the byline needs letters first (2–24, no punctuation soup).",
+                  username_taken: "that byline is already printing.",
+                  invalid_solana_address: "that isn't shaped like a Solana address (32–44 base58)." }[e.payload?.error]
+                || e.payload?.error || "the server blinked.";
+    errSlot("onboard-err", msg);
+  }
+}
+
+async function doChangeWallet() {
+  const input = $("#pb-wallet-settings-input");
+  const v = (input?.value || "").trim();
+  errSlot("wallet-err", "");
+  try {
+    await post("/api/account/wallet", { wallet: v });
+    await refreshAccount(false);
+    setState("dash");
+  } catch (e) {
+    const msg = { fresh_auth_required: "open a fresh magic link first — moving money needs a fresh signature-free proof.",
+                  invalid_solana_address: "that isn't shaped like a Solana address.",
+                  unsupported_media_type: "form posts need not apply.",
+                  account_closed: "that account is closed." }[e.payload?.error]
+                || e.payload?.error || "the wallet desk blinked.";
+    errSlot("wallet-err", msg);
+  }
+}
+
+async function connect() {                      /* the legacy Connect-X demo */
+  const p = panel(); p.dataset.state = "scan";
   try {
     const j = await post("/api/auth/x/start");
     if (j.mock) { await post(j.url); window.location.reload(); }
     else window.location.href = j.url;
-  } catch { setState("err"); $('[data-slot="err"]').textContent = "X start refused: " + (await get("/api/health").catch(() => ({}))).error || "server off"; }
+  } catch { setState("err"); $('[data-slot="err"]').textContent = "X start refused (the classic door is legacy)."; }
 }
 
 function wire() {
   document.addEventListener("click", async (e) => {
     const btn = e.target.closest?.("[data-action]"); if (!btn) return;
     const a = btn.dataset.action;
-    if (a === "connect") connect();
+    if (a === "join") await doJoin();
+    else if (a === "onboard") await doOnboard();
+    else if (a === "submit-post") await doSubmit();
+    else if (a === "open-wallet") setState("wallet");
+    else if (a === "change-wallet") await doChangeWallet();
+    else if (a === "logout") { try { await post("/api/auth/logout"); } catch {} window.location.reload(); }
+    else if (a === "connect") connect();
     else if (a === "mock-login") connect();
-    else if (a === "logout") { try { await post("/api/auth/x/logout"); } catch {} window.location.reload(); }
-    else if (a === "save-wallet") {
-      const input = $("#pb-wallet-input"), v = input.value.trim();
-      const j = await post("/api/me/wallet", { wallet: v }).catch(async (er) => {
-        input.style.borderColor = "var(--tan)";
-        setTimeout(() => input.style.borderColor = "", 1600);
-        return { error: er.payload?.error || "bad" };
-      });
-      if (j?.error) return;
-      await doScan();
-    }
-    else if (a === "rescan") { await resolveMe().catch(() => setState("idle")); }
-    else if (a === "toggle-breakdown") {
-      const box = $("#pb-breakdown"), open = !box.hidden;
-      if (!open && !S.breakdownLoaded) { await loadBreakdown(true); renderBreakdown(); }
+    else if (a === "rescan") { await refreshAccount(true).catch(() => setState("idle")); }
+    else if (a === "toggle-submissions") {
+      const box = $("#pb-submissions"), open = !box.hidden;
+      if (!open && !S.submissionsLoaded) { await loadSubmissions(true); renderSubmissions(); }
       box.hidden = open;
       btn.setAttribute("aria-expanded", String(!open));
-      btn.innerHTML = (open ? "View scoring breakdown" : "Hide breakdown") + " " + ICONS_CHEVRON;
+      btn.innerHTML = (open ? "View my submissions" : "Hide submissions") + " " + ICONS_CHEVRON;
     }
   });
-  /* hero CTA: scroll to the board and kick a connect if idle */
+  /* hero CTA: scroll to the board and prefill nothing — the email is yours */
   $$("[data-hero-connect]").forEach((a) => a.addEventListener("click", () => {
-    if (!S.me?.connected) setTimeout(connect, 400);
+    if (!S.dash) setTimeout(() => $("#pb-email-input")?.focus(), 400);
   }));
 }
 const ICONS_CHEVRON = '<svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';

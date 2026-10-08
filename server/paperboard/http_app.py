@@ -11,6 +11,7 @@ import re
 import secrets
 import time
 
+from .accounts import normalize_email
 from .settings import SITE_DIR
 from .xapi import make_pkce, XError
 
@@ -73,6 +74,10 @@ class Router:
         comp = s.active_competition()
         cid = comp["id"] if comp else None
         user = s.session_user(cookies.get("PBSD"))
+        # the account layer resolves its own session from the same cookie —
+        # X-legacy and account rows are told apart by the session's kind, so
+        # neither flow can borrow the other's seat.
+        account, session = s.account_session(cookies.get("PBSD"))
         mode = "mock" if settings.mock else "live"
 
         if path.startswith("/api/"):
@@ -81,17 +86,25 @@ class Router:
                                settings.pb["ratelimit"]["apiPerMinute"], 60):
                 return 429, {"error": "rate_limited"}
             return self._api(method, path, query, headers, cookies, body,
-                             user, comp, cid, now, mode)
+                             user, comp, cid, now, mode, account, session, ip)
         if path == "/":
             return self._static("index.html")
         return self._static(path.lstrip("/"))
 
     # ------------------------------------------------------------------ api
-    def _api(self, method, path, query, headers, cookies, body, user, comp, cid, now, mode):
+    def _api(self, method, path, query, headers, cookies, body, user, comp, cid, now,
+              mode, account=None, session=None, ip="?"):
         s, settings, pb = self.s, self.settings, self.settings.pb
         rl = pb["ratelimit"]
         ok = lambda **kw: (200, dict(**kw), None)
         fail = lambda code, err: (code, {"error": err}, None)
+
+        def cookie(token, samesite="Lax"):
+            flags = "Path=/; HttpOnly; SameSite=" + samesite
+            if settings.secure_cookies:
+                flags += "; Secure"
+            days = int(s.acfg.get("sessionDays", 30))
+            return (f"PBSD={token}; {flags}; Max-Age={days * 86400}")
 
         if method == "GET":
             if path == "/api/health":
@@ -141,9 +154,125 @@ class Router:
                 if (headers.get("x-paper-token") or "") != (settings.admin_token or "dev"):
                     return fail(401, "bad_admin_token")
                 return ok(usage=s.usage_view())
+
+            # ---- the account layer (identity = account id, never an X handle)
+            if path == "/api/auth/magic":
+                signed_in, why = s.consume_magic_link((query.get("token") or "").strip())
+                if signed_in is None:
+                    return fail(401, why)
+                seat = s.account_new_session(signed_in["id"])
+                return (302, "See you at the board.",
+                        {"Location": "/#board", "Set-Cookie": cookie(seat),
+                         "Cache-Control": "no-store"})
+            if path == "/api/account":
+                if account is None:
+                    return fail(401, "not_authenticated")
+                if account.get("status") != "active":
+                    return fail(403, "account_closed")
+                return 200, s.dashboard(account, cid), None
+            if path == "/api/account/submissions":
+                if account is None:
+                    return fail(401, "not_authenticated")
+                if cid is None:
+                    return fail(404, "no_active_competition")
+                return ok(submissions=s.submissions_view(account, cid), mode=mode)
             return fail(404, "unknown_api_route")
 
         if method == "POST":
+            # CSRF shape-guard: SameSite=Lax carries the wall, and a JSON-only
+            # door keeps a plain form post from moving account state.
+            ctype = headers.get("content-type") or ""
+
+            def acct_gate():
+                """Shared door-check for the authenticated account routes:
+                session present, JSON-shaped body, account in good standing.
+                None means 'walk right in'; anything else is the answer."""
+                if account is None:
+                    return fail(401, "not_authenticated")
+                if ctype and not ctype.startswith("application/json"):
+                    return fail(415, "unsupported_media_type")
+                if account.get("status") != "active":
+                    return fail(403, "account_closed")
+                return None
+
+            if path == "/api/account/start":
+                # the one anonymous door: no session yet, so no gate — only
+                # the two rate buckets and the email shape.
+                # generous per-IP (a NAT full of readers), tight per-inbox —
+                # the email bucket is the one that guards a single victim.
+                if not self._allow(f"start:{ip}", 30, 600):
+                    return fail(429, "magic_rate_limited")
+                email = normalize_email((body or {}).get("email"))
+                if email is None:
+                    return fail(422, "invalid_email")
+                if not self._allow(f"magic:{email}", rl["magicSendPerTenMinutes"], 600):
+                    return fail(429, "magic_rate_limited")
+                acct, _created, err = s.create_or_touch_account(email)
+                if acct is None:
+                    return fail(403, err)
+                token, mailed = s.issue_magic_link(acct["id"])
+                if mailed:
+                    try:    # an inbox cannot click a relative link: base it out
+                        s.mail.send_magic_link(
+                            acct["email"],
+                            settings.public_base + f"/api/auth/magic?token={token}")
+                    except RuntimeError as e:
+                        return fail(502, f"mail_failed: {e}")
+                out = dict(sent=True)                   # same shape, known or not
+                if s.mail.mode == "mock":
+                    out["link"] = f"/api/auth/magic?token={token}"
+                return ok(**out)
+
+            if path == "/api/account/onboard":
+                denied = acct_gate()
+                if denied:
+                    return denied
+                err = s.onboard_account(account, (body or {}).get("username"),
+                                        (body or {}).get("wallet"))
+                if err:
+                    return fail(422, err)
+                return 200, s.dashboard(s.account_by_id(account["id"]), cid), None
+
+            if path == "/api/account/wallet":
+                denied = acct_gate()
+                if denied:
+                    return denied
+                addr, err = s.change_wallet(
+                    account, (body or {}).get("wallet"),
+                    bool(session and session.get("fresh")))
+                if err:
+                    return fail({"fresh_auth_required": 428,
+                                 "invalid_solana_address": 422}.get(err, 422), err)
+                fresh_row = s.account_by_id(account["id"])
+                return ok(wallet=addr,
+                          wallet_effective_at=fresh_row["wallet_effective_at"])
+
+            if path == "/api/account/posts":
+                denied = acct_gate()
+                if denied:
+                    return denied
+                if cid is None:
+                    return fail(404, "no_active_competition")
+                if not self._allow(f"submit:{account['id']}",
+                                   rl["submitPerTenMinutes"], 600):
+                    return fail(429, "submit_rate_limited")
+                res = s.submit_post(account, (body or {}).get("url"), cid)
+                if not res.get("ok"):
+                    reason = res.get("reason", "submit_failed")
+                    payload = {"error": reason}
+                    if reason == "duplicate_submission":
+                        payload["owner"] = res.get("owner")
+                        payload["points"] = res.get("points")
+                    return {"bad_post_url": 400, "post_not_found": 404,
+                            "duplicate_submission": 409,
+                            "submission_limit": 429,
+                            "provider_unavailable": 502}.get(reason, 400), payload, None
+                return ok(submission=res["submission"], mode=mode)
+
+            if path == "/api/auth/logout":
+                s.end_session(cookies.get("PBSD"))
+                return ok(loggedOut=True)
+
             if path == "/api/auth/x/start":
                 if settings.mock:
                     return ok(mock=True, url="/api/auth/x/mock-login")
