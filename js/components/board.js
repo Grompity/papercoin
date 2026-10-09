@@ -51,7 +51,7 @@ export function Board() {
 
             <div class="board__ctas" data-reveal>
               <button type="button" class="btn btn--ghost" data-action="mock-login" hidden>
-                demo sign-in ${ICONS.x}
+                Demo sign-in ${ICONS.x}
               </button>
               <button type="button" class="btn btn--ghost" data-action="logout" hidden>
                 Sign out
@@ -77,9 +77,11 @@ export function Board() {
 
                 <div class="panel__state" data-state="idle">
                   <div class="p-join">
-                    <h3>Create your PAPERBOARD account.</h3>
-                    <p>Email in, magic link out. No password, no X connect,
-                       no wallet extension — the server does the reading.</p>
+                    <h3>Sign in / Create account</h3>
+                    <p>Enter your email and PAPERBOARD will send a secure, one-time
+                       sign-in link — it signs you in, and opens the account on
+                       first use. No passwords, no wallet extension, and no X
+                       account required.</p>
                     <div class="p-join__form">
                       <label class="sr" for="pb-email-input">Email</label>
                       <input id="pb-email-input" type="email" inputmode="email" autocomplete="email"

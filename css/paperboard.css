@@ -273,3 +273,8 @@
   .board-table tbody td.num .dim::before { content: " · " }
   .rk { font-size: 1.4rem }
 }
+
+/* the hidden attribute must mean hidden on buttons too: .btn sets
+   display:inline-flex (paper.css), which outranks the UA's [hidden] rule.
+   the legacy demo sign-in ships hidden; this is the guard that keeps it so. */
+.btn[hidden] { display: none }
