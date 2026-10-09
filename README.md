@@ -230,9 +230,10 @@ token CA: `E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk`
 - the admin review room is `server`-gated, every request: `/admin` serves a
   public shell and the data behind it (`/api/admin/whoami`, `/queue`, and the
   POST `/verify`) admits only a signed-in account whose email is on the
-  `PAPER_ADMINS` allowlist — an explicit env list, no new secret, no default
-  password, and an UNSET list locks everyone out (fail closed). A non-admin
-  gets a polite 403, never a leak. The board prints base+bonus apart and marks
+  `PAPER_ADMINS` allowlist — a comma list defaulting to the project owner's
+  address (`p42production@gmail.com`); setting the variable empty locks the
+  door entirely (fail closed), and no secret rides the wire. A non-admin gets
+  a polite 403, never a leak. The board prints base+bonus apart and marks
   pending like counts (⏳n) so a held-back bonus never reads as a zero.
 - the public board ranks the live ledger (submissions): frozen points,
   submitters only, tie-true ranks mirroring the dashboard; the legacy scan
