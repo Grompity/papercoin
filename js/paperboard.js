@@ -77,6 +77,8 @@ function setMode(text, cls = "") {
 
 /* — boot: config → account → leaderboard (server is the source of truth) — */
 export async function boot() {
+  if (S.booting) return;                          /* a retry cannot stack on a running boot */
+  S.booting = true;
   try {
     const cfg = await get("/api/config");
     S.cfg = cfg; S.mode = cfg.mode;
@@ -94,7 +96,13 @@ export async function boot() {
     if (e instanceof TypeError) {            /* network down — off press */
       S.mode = "off"; setMode("off press", "stamp--rot");
       setState("off"); paintBoard();
+    } else {                                 /* server answered badly — recoverable */
+      const slot = $('[data-slot="err"]');
+      if (slot) slot.textContent = "the server did not answer the board (" + ((e && e.message) || "error") + ")";
+      setState("err"); paintBoard();
     }
+  } finally {
+    S.booting = false;
   }
 }
 
@@ -425,7 +433,7 @@ function wire() {
     else if (a === "logout") { try { await post("/api/auth/logout"); } catch {} window.location.reload(); }
     else if (a === "connect") connect();
     else if (a === "mock-login") connect();
-    else if (a === "rescan") { await refreshAccount(true).catch(() => setState("idle")); }
+    else if (a === "rescan") { await (S.cfg ? refreshAccount(true) : boot()).catch(() => setState("idle")); }
     else if (a === "toggle-submissions") {
       const box = $("#pb-submissions"), open = !box.hidden;
       if (!open && !S.submissionsLoaded) { await loadSubmissions(true); renderSubmissions(); }

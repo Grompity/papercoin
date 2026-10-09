@@ -1509,6 +1509,28 @@ def main():
           and resD.get("owner") == "self" and abs((resD.get("points") or 0) - 22.0) < .001,
           str(resD)[:90])
 
+    # = pb-v3.0 front contract: a boot failure is recoverable, not a hang ==
+    js = open(os.path.join(os.path.dirname(__file__), "..", "js", "paperboard.js")).read()
+    html = open(os.path.join(os.path.dirname(__file__), "..", "js", "components", "board.js")).read()
+    i_cfg = js.find('get("/api/config")')
+    i_fin = js.find("S.booting = false", i_cfg)
+    i_err = js.find('setState("err"); paintBoard();', i_cfg)
+    i_off = js.find('setState("off"); paintBoard();', i_cfg)
+    check("pb front: the boot path reaches the recoverable error state (not a hang)",
+          -1 < i_cfg < i_err and "the server did not answer the board" in js,
+          "cfg@%s err@%s" % (i_cfg, i_err))
+    check("pb front: an HTTP failure (404 or 500) answers in words, not a spinner forever",
+          js.count("the server did not answer the board") == 1 and i_err < i_fin,
+          "one err branch")
+    check("pb front: the offline (network) branch still leads to the off-press panel",
+          -1 < i_cfg < i_off < i_err, "off@%s" % i_off)
+    check("pb front: the retry re-boots while the config is missing, else refreshes as always",
+          "(S.cfg ? refreshAccount(true) : boot())" in js, "wired")
+    check("pb front: no boot overlap — a running boot absorbs a concurrent retry",
+          js.count("S.booting") >= 3, "guard@%s" % js.find("S.booting"))
+    check("pb front: the error pane ships with a truthful heading and a retry path",
+          "hit a snag" in html and 'data-action="rescan"' in html, "pane ready")
+
     print("failures:", len(FAILURES))
     return len(FAILURES)
 
