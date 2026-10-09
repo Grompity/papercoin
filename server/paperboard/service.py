@@ -943,31 +943,54 @@ class Service:
         return snap_id
 
     def leaderboard(self, competition_id):
-        snap = self.db.conn.execute(
-            "SELECT * FROM snapshots WHERE competition_id=? ORDER BY id DESC LIMIT 1",
-            (competition_id,)).fetchone()
-        if not snap:
-            return None
-        rows = self.db.conn.execute("""
-            SELECT s.*, u.x_username, u.display_name, u.avatar_url, u.wallet
-            FROM snapshot_rows s JOIN users u ON u.id=s.user_id
-            WHERE s.snapshot_id=? ORDER BY s.rank, s.user_id
-        """, (snap["id"],)).fetchall()
-        out_rows = []
-        for r in rows:
-            out_rows.append(dict(
-                rank=r["rank"], tier=r["tier"], movement=r["movement"],
-                user=dict(handle=r["x_username"], name=r["display_name"],
-                          avatar=r["avatar_url"]),
-                points=r["points"], posts=r["posts_count"], engagement=r["engagement"],
-                share_pct=r["share_pct"], share_est=r["share_est"],
-            ))
-        return dict(
-            snapshot_id=snap["id"], generated_at=snap["generated_at"],
-            total_points=snap["total_points"], participants=snap["participants"],
-            next_refresh_at=snap["generated_at"] + self.refresh_seconds,
-            rows=out_rows,
-        )
+        """The public board in account-era clothes: ranks come from the live
+        submission ledger, and the points are the frozen per-row totals —
+        scored at submit time, nothing here recomputes them. Legacy scans
+        (posts/users) ride their own tables and cannot vote here: only real
+        submitters appear, ties share the rank exactly as the dashboard
+        already promises, engagement reports only what a provider truly
+        reported (a presence row adds nothing — no invented zero), and the
+        share is an estimate: the ledger moves money, not the scheduler."""
+        t = now()
+        grouped = self.db.conn.execute(
+            "SELECT s.account_id AS user_id,"
+            " COALESCE(a.username, a.email) AS handle,"
+            " SUM(s.points) AS points,"
+            " SUM(CASE WHEN s.eligible THEN 1 ELSE 0 END) AS posts_count"
+            " FROM submissions s JOIN accounts a ON a.id = s.account_id"
+            " WHERE s.competition_id=? GROUP BY s.account_id"
+            " ORDER BY points DESC, s.account_id", (competition_id,)).fetchall()
+        if not grouped:
+            return dict(snapshot_id=None, generated_at=t, total_points=0.0,
+                        participants=0, next_refresh_at=t + self.refresh_seconds,
+                        rows=[])
+        engaged = {}
+        for r in self.db.conn.execute(
+                "SELECT account_id, metrics_json FROM submissions"
+                " WHERE competition_id=?", (competition_id,)).fetchall():
+            m = json.loads(r["metrics_json"]) or {}
+            engaged[r["account_id"]] = (engaged.get(r["account_id"], 0)
+                                        + sum(m.get(k) or 0 for k in
+                                              ("likes", "replies", "reposts",
+                                               "quotes")))
+        shares = estimate([dict(user_id=r["user_id"], points=r["points"])
+                            for r in grouped], self.prize)
+        total = sum(max(0.0, r["points"]) for r in grouped)
+        rows, prev_pts, rank = [], None, 0
+        for i, r in enumerate(grouped):        # SQL ordered; rank mirrors dashboard
+            if r["points"] != prev_pts:
+                rank = i + 1
+                prev_pts = r["points"]
+            est = shares.get(r["user_id"], dict(share_pct=0.0, share_est=0.0))
+            rows.append(dict(
+                rank=rank, tier=tier_for(rank, self.tiers), movement=None,
+                user=dict(handle=r["handle"], name=r["handle"], avatar=None),
+                points=r["points"], posts=r["posts_count"],
+                engagement=engaged.get(r["user_id"], 0),
+                share_pct=est["share_pct"], share_est=est["share_est"]))
+        return dict(snapshot_id=None, generated_at=t, total_points=total,
+                    participants=len(grouped),
+                    next_refresh_at=t + self.refresh_seconds, rows=rows)
 
     # ------------------------------------------------------------------ me
     def me_view(self, user, competition_id):

@@ -258,9 +258,11 @@ def main():
           str(view["points"]))
     snap = s.refresh_standings(cid)
     board = s.leaderboard(cid)
-    check("leaderboard: snapshot + rows", board and len(board["rows"]) >= 1, str(bool(board)))
-    check("leaderboard: rank 1 is FRONT PAGE",
-          board["rows"][0]["tier"] == "FRONT PAGE" if board["rows"] else False)
+    check("leaderboard: the board speaks account-era now — it answers before"
+          " any submission exists (rows list, zero participants); the"
+          " snapshot's ghosts are gone",
+          board is not None and isinstance(board["rows"], list)
+          and board["participants"] == 0, str(board)[:60])
     check("leaderboard: meta has next_refresh_at", "next_refresh_at" in (board or {}))
     posts = s.posts_view(user_row, cid)
     check("posts: audit trail present", all(p["audit"].get("contributions") for p in posts
@@ -287,7 +289,10 @@ def main():
           stt == 200 and "mock" in str(payload.get("providerStrategy")),
           str(payload.get("providerStrategy")))
     stt, payload = go("GET", "/api/leaderboard")
-    check("http: leaderboard rows", stt == 200 and len(payload.get("rows", [])) >= 1)
+    check("http: the board answers before any submission — an honest empty"
+          " board, not a 503 and not a legacy snapshot's ghost",
+          stt == 200 and payload.get("rows") == []
+          and payload.get("participants") == 0)
     stt, payload = go("GET", "/api/me")
     check("http: me anonymous", stt == 200 and payload.get("connected") is False)
     tok = s.new_session(uid)
@@ -633,6 +638,61 @@ def main():
     check("acct: the owner's ledger shows exactly my posts (auth rides the account id)",
           stt == 200 and len(subs) == 3 and all("audit" in row0 for row0 in subs),
           str(len(subs)))
+
+    # ------------------------- public board: the live ledger rules it ---------
+    stB, dS2, sB, cidB = make_env2("BOARD", MockXClient(Settings()))
+    lv0 = sB.leaderboard(cidB)
+    check("board: a competition without submissions answers an honest empty"
+          " board — zero participants, zero rows, no 503 and nothing invented",
+          lv0 is not None and lv0["participants"] == 0 and lv0["rows"] == [])
+    accZ, _cz, _ez = sB.create_or_touch_account("zero@paper.io")
+    dS2.conn.execute(
+        "INSERT INTO submissions(account_id,competition_id,x_post_id,url,"
+        "reason,eligible,points,submitted_at) VALUES(?,?,?,?,?,?,?,?)",
+        (accZ["id"], cidB, "z1", "https://x.com/zero/status/z1",
+         "no_identifier", 0, 0.0, time.time()))
+    dS2.conn.commit()
+    lvZ = sB.leaderboard(cidB)
+    check("board: a submitter whose every post was ineligible still appears —"
+          " at zero points with zero counted posts, present and never padded",
+          lvZ["participants"] == 1 and lvZ["rows"][0]["points"] == 0.0
+          and lvZ["rows"][0]["posts"] == 0 and lvZ["rows"][0]["rank"] == 1,
+          str(lvZ["rows"][0])[:90])
+    accY, _cy, _ey = sB.create_or_touch_account("tieone@paper.io")
+    accX, _cx, _ex = sB.create_or_touch_account("tietwo@paper.io")
+    for accT, pidT in ((accY, "t1"), (accX, "t2")):
+        dS2.conn.execute(
+            "INSERT INTO submissions(account_id,competition_id,x_post_id,url,"
+            "reason,eligible,points,submitted_at) VALUES(?,?,?,?,?,?,?,?)",
+            (accT["id"], cidB, pidT, f"https://x.com/t/status/{pidT}",
+             "ok", 1, 100.0, time.time()))
+    dS2.conn.commit()
+    lvT = sB.leaderboard(cidB)
+    check("board: ties share the rank as the dashboard promises — two"
+          " 100-point accounts both take rank one, and the zero row lands at"
+          " rank three (ties share, they never inflate)",
+          [r["rank"] for r in lvT["rows"]] == [1, 1, 3]
+          and lvT["participants"] == 3 and lvT["total_points"] == 200.0,
+          str([r["rank"] for r in lvT["rows"]]))
+    stt, payload = go("GET", "/api/leaderboard")        # main env, after submits
+    rowsB = payload.get("rows") or []
+    ledB = database.conn.execute(
+        "SELECT COALESCE(SUM(points),0) AS pts,"
+        " SUM(CASE WHEN eligible THEN 1 ELSE 0 END) AS cnt,"
+        " COUNT(DISTINCT account_id) AS subs FROM submissions").fetchone()
+    check("board: the live ledger rules the PUBLIC board — the points are the"
+          " frozen submit-time totals (equals the ledger sum), counted posts"
+          " are the eligible ones alone (the no_follow row adds none), and"
+          " only real submitters appear (the scan-era users cannot vote)",
+          stt == 200 and len(rowsB) == 1 and rowsB[0]["points"] == ledB["pts"]
+          and rowsB[0]["posts"] == ledB["cnt"] and rowsB[0]["rank"] == 1
+          and len(rowsB) == ledB["subs"], str(rowsB)[:110])
+    check("board: the board and the ledger are one truth — points,"
+          " participants, and the rank-1 tier label all ride the frozen rows,"
+          " never a recomputed guess",
+          payload.get("totalPoints") == ledB["pts"]
+          and payload.get("participants") == ledB["subs"]
+          and rowsB[0]["tier"] == "FRONT PAGE", str(payload.get("totalPoints")))
 
     stt, payload = go("POST", "/api/account/start", body={"email": "B@Paper.io"})
     tokb = magic_from(payload or {})

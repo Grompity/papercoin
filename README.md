@@ -215,6 +215,9 @@ token CA: `E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk`
   an honest gap: a metric the provider did not report earns NO points and
   is also never punished as a thin zero (the stamp reads `metrics_unreported`).
   the server's audit trail is rendered, never re-divined.
+- the public board ranks the live ledger (submissions): frozen points,
+  submitters only, tie-true ranks mirroring the dashboard; the legacy scan
+  snapshot still serves its own legacy screens.
 - prizes are `mixed` (proportional slice + top-3 slice + community slice)
   over a 1,000,000 `$PAPER` pool.
 - the front page is a SNAPSHOT, refreshed ~4× a day by the scheduler —
