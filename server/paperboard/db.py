@@ -156,9 +156,18 @@ CREATE TABLE IF NOT EXISTS submissions (
   metrics_json   TEXT NOT NULL DEFAULT '{}',
   score_json     TEXT,
   -- how the row was verified: 'engagement' | 'presence'; NULL = a pre-state
-  -- legacy row. the metric snapshot rides metrics_json; the state is a column
-  -- so an admin can see, at a glance, what a row can honestly claim.
-  verification   TEXT,
+  -- legacy row. the metric snapshot rides metrics_json; the state is a
+  -- column so an admin can see, at a glance, what a row can honestly claim.
+  verification     TEXT,
+  -- the official like count's life (pb-v3): the state machine is
+  -- pending -> verified (via admin_events) with disputed as a flag;
+  -- 'pending' is the manual-review queue. NULL = a pre-v3 legacy row.
+  -- official_likes is authoritative ONLY while like_status is verified;
+  -- while pending/disputed it is an unconfirmed observation at best.
+  like_status      TEXT,
+  official_likes   INTEGER,
+  like_measured_at REAL,
+  like_source      TEXT,
   UNIQUE (competition_id, x_post_id),
   FOREIGN KEY (account_id) REFERENCES accounts(id),
   FOREIGN KEY (competition_id) REFERENCES competitions(id)
@@ -191,6 +200,28 @@ CREATE TABLE IF NOT EXISTS wallet_audit (
   changed_at   REAL NOT NULL,
   effective_at REAL,
   FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+
+-- admin_events: the append-only audit trail of the admin's hand. a
+-- verification AND every later correction append a row — history is never
+-- rewritten, and an ordinary user (or a stray script) cannot write here
+-- except through the verify endpoint. the score is always recomputed from
+-- state server-side, so a duplicate request lands on the same points.
+CREATE TABLE IF NOT EXISTS admin_events (
+  id               INTEGER PRIMARY KEY,
+  submission_id    INTEGER NOT NULL,
+  admin            TEXT NOT NULL,
+  action           TEXT NOT NULL,
+  prev_count       INTEGER,
+  new_count        INTEGER,
+  prev_points      REAL,
+  new_points       REAL,
+  measured_at      REAL NOT NULL,
+  acted_at         REAL NOT NULL,
+  reason           TEXT NOT NULL DEFAULT '',
+  method           TEXT NOT NULL DEFAULT '',
+  scoring_version  TEXT NOT NULL DEFAULT '',
+  FOREIGN KEY (submission_id) REFERENCES submissions(id)
 );
 
 CREATE INDEX IF NOT EXISTS ix_submissions_account ON submissions(account_id, competition_id);
@@ -236,7 +267,13 @@ def _migrate(conn):
             ("sessions", "expires_at", "REAL"),
             ("sessions", "last_seen_at", "REAL"),
             ("posts", "account_id", "INTEGER"),
-            ("submissions", "verification", "TEXT")):
+            ("submissions", "verification", "TEXT"),
+            # pb-v3 — the official like count's home. all nullable: a
+            # pre-v3 row stays exactly as it was, its meaning unchanged.
+            ("submissions", "like_status", "TEXT"),
+            ("submissions", "official_likes", "INTEGER"),
+            ("submissions", "like_measured_at", "REAL"),
+            ("submissions", "like_source", "TEXT")):
         if table in {"users", "posts", "scans", "sessions", "submissions"} \
                 and col not in cols(table):
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")

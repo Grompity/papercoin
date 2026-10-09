@@ -89,6 +89,11 @@ class Router:
                              user, comp, cid, now, mode, account, session, ip)
         if path == "/":
             return self._static("index.html")
+        if path == "/admin":
+            # the admin shell is a public file; the DATA behind it is not.
+            # a stranger who opens /admin sees an empty room and a 401, not
+            # the queue — the gate lives server-side, where it belongs.
+            return self._static("admin.html")
         return self._static(path.lstrip("/"))
 
     # ------------------------------------------------------------------ api
@@ -176,6 +181,41 @@ class Router:
                 if cid is None:
                     return fail(404, "no_active_competition")
                 return ok(submissions=s.submissions_view(account, cid), mode=mode)
+
+            if path.startswith("/api/admin/") and path != "/api/admin/refresh":
+                # the account-era admin doors. the gate is server-side every
+                # time: a signed-in account whose email sits on the explicit
+                # allowlist (env PAPER_ADMINS). no token, no role in the DB,
+                # no client say-so. an empty allowlist locks EVERYONE out —
+                # fail-closed is the only fail direction an admin board has.
+                def admin_gate():
+                    """None means 'walk right in'; anything else is the answer."""
+                    if account is None:
+                        return fail(401, "not_authenticated")
+                    if not settings.admset:
+                        return fail(403, "no_admins_configured")
+                    if (account.get("email") or "").lower() not in settings.admset:
+                        return fail(403, "admin_only")
+                    if account.get("status") != "active":
+                        return fail(403, "account_closed")
+                    return None
+
+                gate = admin_gate()
+                if gate is not None:
+                    return gate
+
+                if path == "/api/admin/whoami":
+                    return 200, dict(is_admin=True,
+                                     email=(account.get("email") or "").lower()), None
+                if path == "/api/admin/queue":
+                    if not self._allow(f"admin:{ip}", rl["apiPerMinute"], 60):
+                        return fail(429, "rate_limited")
+                    status = (query.get("status") or "pending").strip().lower()
+                    if status not in ("pending", "verified", "disputed", "corrected"):
+                        return fail(400, "bad_status")
+                    return ok(status_filter=status, mode=mode,
+                              rows=s.admin_queue(cid, status))
+                return fail(404, "unknown_api_route")
             return fail(404, "unknown_api_route")
 
         if method == "POST":
@@ -194,6 +234,50 @@ class Router:
                 if account.get("status") != "active":
                     return fail(403, "account_closed")
                 return None
+
+            if path == "/api/admin/verify":
+                # the account-era manual verification. the gate is the whole
+                # point: server-side, every time. a browser may SUGGEST a
+                # count; it never supplies a score, and a non-admin never
+                # gets the door open at all (403, not a polite 200).
+                gate = acct_gate()
+                if gate is not None:
+                    return gate
+                email = (account.get("email") or "").lower()
+                if not settings.admset or email not in settings.admset:
+                    return fail(403, "admin_only")
+                if not self._allow(f"adminverify:{account['id']}", 60, 60):
+                    return fail(429, "verify_rate_limited")
+                b = body or {}
+                try:
+                    sub_id = int(b.get("id"))
+                except (TypeError, ValueError):
+                    return fail(400, "bad_id")
+                status = (b.get("status") or "verify").strip().lower()
+                if status not in ("verify", "dispute"):
+                    return fail(400, "bad_status")
+                raw = b.get("likes")
+                count = None
+                if status == "verify":
+                    if raw is None or isinstance(raw, bool):
+                        return fail(400, "bad_likes")
+                    try:
+                        count = int(raw)
+                    except (TypeError, ValueError):
+                        return fail(400, "bad_likes")
+                    if count < 0:
+                        return fail(400, "bad_likes")
+                res = s.verify_like(
+                    sub_id, email, count, b.get("measuredAt"),
+                    (b.get("reason") or "")[:400],
+                    (b.get("method") or "manual")[:60])
+                if not res.get("ok"):
+                    code = {"submission_not_found": 404,
+                            "nothing_to_dispute": 409,
+                            "bad_count": 400,
+                            "suspicious_count": 400}.get(res.get("reason"), 500)
+                    return fail(code, res.get("reason", "verify_failed"))
+                return ok(**res)
 
             if path == "/api/account/start":
                 # the one anonymous door: no session yet, so no gate — only

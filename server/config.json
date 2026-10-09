@@ -49,17 +49,21 @@
     },
 
     "scoring": {
-      "version": "pb-v1.1",
-      "basePerPost": 5,
-      "perLike": 6,
-      "perReply": 8,
-      "perRepost": 14,
-      "perQuote": 20,
-      "impressions": { "points": 30, "halfLife": 1200 },
-      "postCap": 120,
+      "version": "pb-v3.0",
+      "basePerPost": 10,
+      "perLike": 1,
+      "perReply": 0,
+      "perRepost": 0,
+      "perQuote": 0,
+      "impressions": { "points": 0, "halfLife": 1200 },
+      "likeKnee": 100,
+      "likeTailSpan": 400,
+      "likeTailRate": 0.25,
+      "likeBonusCap": 200,
+      "postCap": 210,
       "maxScoredPostsPerWindow": 12,
       "duplicateWindowHours": 24,
-      "thinSignalMultiplier": 0.5
+      "thinSignalMultiplier": 1.0
     },
 
     "prize": {

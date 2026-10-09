@@ -209,12 +209,31 @@ token CA: `E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk`
   and the retroactive-gate semantics stand. presence-only verification (the
   oEmbed lane) still rows up eligible, on base points alone, visibly stamped
   `presence_verified`.
-- scoring is transparent (`pb-v1`, amended `pb-v1.1` after the 2026-10 live
-  feed probe): base per post + per-engagement points, a diminishing
-  impressions curve, duplicate + frequency zero-outs, a per-window cap — and
-  an honest gap: a metric the provider did not report earns NO points and
-  is also never punished as a thin zero (the stamp reads `metrics_unreported`).
+- scoring is transparent, and versioned. `pb-v1` (amended `pb-v1.1` after the
+  2026-10 live feed probe) was the base-plus-engagement-press era. The beta
+  ships `pb-v3.0` — hybrid like scoring: every eligible post earns the base
+  (10); **only likes add points**, and only from an OFFICIAL count — one point
+  per like to 100, then a quarter-point tail for 400 more, bonus capped at 200,
+  so the curve saturates at 500 likes and a post maxes at 210. Worked:
+  0 → 10 · 10 → 20 · 100 → 110 · 300 → 160 · 500 → 210 · 9000 → 210.
+  Replies/reposts/quotes/impressions ride the stored snapshot as evidence but
+  score nothing. A like count the zero-cost stack could not retrieve is
+  PENDING (base rides, bonus withheld — never a fake zero) and waits for an
+  admin; a genuinely measured zero is a measurement, not a penalty.
+- the official like count is a SUBMIT-TIME snapshot: the count and its
+  timestamp are recorded with the row, and an admin correction is the same
+  curve re-applied by the server, never a browser-supplied score. Verification
+  and dispute live behind the admin door (see below); the state machine is
+  pending → verified, with disputed as a flag, and every move appends an
+  immutable event row (`admin_events`) — history is only ever appended to.
   the server's audit trail is rendered, never re-divined.
+- the admin review room is `server`-gated, every request: `/admin` serves a
+  public shell and the data behind it (`/api/admin/whoami`, `/queue`, and the
+  POST `/verify`) admits only a signed-in account whose email is on the
+  `PAPER_ADMINS` allowlist — an explicit env list, no new secret, no default
+  password, and an UNSET list locks everyone out (fail closed). A non-admin
+  gets a polite 403, never a leak. The board prints base+bonus apart and marks
+  pending like counts (⏳n) so a held-back bonus never reads as a zero.
 - the public board ranks the live ledger (submissions): frozen points,
   submitters only, tie-true ranks mirroring the dashboard; the legacy scan
   snapshot still serves its own legacy screens.

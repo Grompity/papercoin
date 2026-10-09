@@ -147,6 +147,27 @@ class BoomX(BlindX):
         raise XError("syndication 503")
 
 
+class RichX(BlindX):
+    """v3 battery eye: syndication-shaped post where the like count rides
+    along (or, with likes=None, does not) — every OTHER metric deliberately
+    present, so any scoring that leaned on them would trip the battery."""
+
+    def __init__(self, likes=None):
+        self.likes = likes
+
+    def resolve_post(self, post_id, url=None):
+        return dict(provider="syndication", post_id=post_id, author="quiet",
+                    author_id=None, text="$paper loud post",
+                    url=f"https://x.com/quiet/status/{post_id}",
+                    posted_at=time.time() - 60,
+                    metrics=dict(likes=self.likes, replies=3, reposts=4,
+                                 quotes=5, impressions=66),
+                    provided=(["likes", "replies", "reposts", "quotes",
+                               "impressions"] if self.likes is not None else
+                              ["replies", "reposts", "quotes", "impressions"]),
+                    verification="engagement")
+
+
 class ReplayResp:
     """Stands in for what urlopen answers, holding a captured payload."""
 
@@ -848,7 +869,12 @@ def main():
           f"{subD3.get('reason')}/{auditD3.get('follow')}")
 
     # ------------------------------ phase 3: unknown metrics are not thin zeros
-    scx = stD3.pb["scoring"]
+    # this battery pins the ANTI-GAMING DOCTRINE of the v1 era, whichever
+    # version happens to ship — it carries its own v1.1 scoring block.
+    scx = dict(stD3.pb["scoring"], version="pb-v1.1", basePerPost=5,
+               perLike=6, perReply=8, perRepost=14, perQuote=20,
+               impressions={"points": 30, "halfLife": 1200}, postCap=120,
+               thinSignalMultiplier=0.5, minImpressions=10)
     ptsB, auditB = score_post(dict(likes=None, replies=None, reposts=None,
                                    quotes=None, impressions=None), scx, {})
     check("scoring: metrics unreported keeps the base and says so, never thin_signal",
@@ -868,7 +894,7 @@ def main():
     resB3 = sB3.submit_post(signedB3, "https://x.com/quiet/status/555", cidB3)
     check("submit: a metrics-blind provider still verifies presence (base points ride)",
           resB3.get("ok") and (resB3.get("submission") or {}).get("points")
-          == scx["basePerPost"], str(resB3)[:110])
+          == stD3.pb["scoring"]["basePerPost"], str(resB3)[:110])
 
     # --------------------------------------- the provider failing must fail closed
     _stB4, _dB4, sB4, cidB4 = make_env2("BOOM", BoomX())
@@ -993,8 +1019,9 @@ def main():
         audK = json.loads(dK.conn.execute(
             "SELECT score_json FROM submissions ORDER BY id DESC LIMIT 1"
             ).fetchone()["score_json"])
+        sclK = stD3.pb["scoring"]          # the STACK batteries guard TODAY's
         ptsW, _aW = score_post(dict(likes=8, replies=3, reposts=3, quotes=0,
-                                    impressions=123), scx, {})
+                                    impressions=123), sclK, {})
         check("stack: both providers stand — fx answers with full engagement,"
               " oEmbed is not needed; audit says engagement/fxtwitter/"
               "advisory/fetched_at; the wrong paste byline became the truth",
@@ -1010,9 +1037,10 @@ def main():
             views="0", bookmarks="0") if who == "fx" else oe_body("9002"))
         res2 = sK.submit_post(signedK, "https://x.com/anyone/status/9002", cidK)
         sub2 = res2.get("submission") or {}
-        check("stack: genuine zeros stay a measurement, not an absence — the"
-              " thin-signal (earned) rides the row, missing is empty",
-              res2.get("ok") and sub2.get("points") == ptsZ
+        check("stack: genuine zeros stay a measurement, not an absence —"
+              " under the shipped rules the row scores exactly the base,"
+              " missing is empty",
+              res2.get("ok") and sub2.get("points") == sclK["basePerPost"]
               and sub2.get("missing") == [] and sub2.get("verification") == "engagement",
               str(sub2)[:90])
 
@@ -1022,7 +1050,7 @@ def main():
         res3 = sK.submit_post(signedK, "https://x.com/anyone/status/9003", cidK)
         sub3 = res3.get("submission") or {}
         ptsM, _aM = score_post(dict(likes=8, replies=3, reposts=3, quotes=None,
-                                    impressions=None), scx, {})
+                                    impressions=None), sclK, {})
         check("stack: omitted metrics are missing, never zero-fed — the score"
               " sums only what was reported",
               res3.get("ok") and sub3.get("missing") == ["quotes", "impressions"]
@@ -1041,7 +1069,7 @@ def main():
               " oEmbed carries it as presence_verified, base points only,"
               " metrics_unreported stamped",
               res4.get("ok") and sub4.get("reason") == "presence_verified"
-              and sub4.get("points") == scx["basePerPost"]
+              and sub4.get("points") == sclK["basePerPost"]
               and sub4.get("verification") == "presence"
               and sub4.get("provider") == "oembed"
               and sub4.get("missing") == ["likes", "replies", "reposts",
@@ -1241,6 +1269,245 @@ def main():
                                   ("X_API_BEARER", saved_x_bearer)):
             if env_val is not None:
                 os.environ[env_name] = env_val
+
+    # ================= pb-v3.0: hybrid like scoring + secure manual review ====
+    # (battery notes: this file's own text travels through the display layer
+    # case-folded, but the bytes on disk are what run — these checks talk to
+    # the real objects, so they measure the truth, not the rendering.)
+    stV, dbV, sV, cidV = make_env2("V3", BlindX())
+    rV = http_app.Router(sV, stV, dbV, BlindX())
+    stV.admset = set(["root@paper.io"])          # the gate is a server truth
+    accP, _cV1, _eV1 = sV.create_or_touch_account("user@paper.io")
+    signedP, _whyV = sV.consume_magic_link(sV.issue_magic_link(accP["id"])[0])
+
+    def seat_for(email):
+        accX = sV.create_or_touch_account(email)[0]
+        out = rV.dispatch("GET", "/api/auth/magic",
+                          {"token": sV.issue_magic_link(accX["id"])[0]},
+                          {}, {}, None)
+        return {"PBSD": out[2]["Set-Cookie"].split("PBSD=")[1].split(";")[0]}
+
+    def gov(method, path, query=None, headers=None, cookies=None, body=None):
+        out = rV.dispatch(method, path, query or {}, headers or {},
+                          cookies or {}, body)
+        return out[0], out[1]
+
+    ckP, ckA = seat_for("user@paper.io"), seat_for("root@paper.io")
+    JSONV = {"content-type": "application/json"}
+
+    # — lane A: a presence post (no count) lands base-only, pending, queued
+    sV.x = BlindX()
+    resP = sV.submit_post(signedP, "https://x.com/quiet/status/7001", cidV)
+    idP = (resP.get("submission") or {}).get("id")
+    check("v3: an eligible post without a count earns the base, holds the "
+          "bonus pending, and walks into the review queue (never a fake zero)",
+          resP.get("ok") and (resP.get("submission") or {}).get("points")
+          == stV.pb["scoring"]["basePerPost"]
+          and (resP.get("submission") or {}).get("like_status") == "pending"
+          and len(sV.admin_queue(cidV, "pending")) == 1
+          and sV.admin_queue(cidV, "verified") == [], str(resP)[:110])
+
+    # — lane B: an automatic count is recorded as a CANDIDATE, not a crown
+    sV.x = RichX(likes=8)
+    resQ = sV.submit_post(signedP, "https://x.com/quiet/status/7002", cidV)
+    idQ = (resQ.get("submission") or {}).get("id")
+    rowQ = dbV.conn.execute("SELECT like_status, official_likes FROM submissions"
+                            " WHERE id=?", (idQ,)).fetchone()
+    check("v3: an automatically retrieved count rides along as a reported "
+          "candidate awaiting verification — base 10 plus the curve for 8",
+          resQ.get("ok") and rowQ["like_status"] == "reported"
+          and rowQ["official_likes"] == 8
+          and (resQ.get("submission") or {}).get("points") == 18.0
+          and len(sV.admin_queue(cidV, "pending")) == 1, str(resQ)[:110])
+
+    # — other metrics stay decoration under v3
+    sV.x = RichX(likes=None)
+    resM = sV.submit_post(signedP, "https://x.com/quiet/status/7003", cidV)
+    check("v3: replies/reposts/quotes/impressions present but ignored — a "
+          "post with NO likes reported scores exactly the base",
+          resM.get("ok") and (resM.get("submission") or {}).get("points")
+          == stV.pb["scoring"]["basePerPost"], str(resM)[:90])
+    idM = (resM.get("submission") or {}).get("id")
+
+    # — the gate: server-side, every door
+    stt, pl = gov("GET", "/api/admin/whoami")
+    check("v3 gate: no session — the queue is 401, not a peek",
+          stt == 401 and pl.get("error") == "not_authenticated")
+    stt, pl = gov("GET", "/api/admin/whoami", cookies=ckP)
+    check("v3 gate: an ordinary signed account is 403 admin-only (hidden page"
+          " is not security)", stt == 403 and pl.get("error") == "admin_only")
+    stt, pl = gov("GET", "/api/admin/whoami", cookies=ckA)
+    check("v3 gate: an allowlisted session walks in (whoami 200)",
+          stt == 200 and pl.get("is_admin"))
+    stt, pl = gov("GET", "/api/admin/queue", query={"status": "nonsense"},
+                  cookies=ckA)
+    check("v3 gate: a nonsense filter is a clean 400", stt == 400
+          and pl.get("error") == "bad_status")
+    stt, pl = gov("GET", "/api/admin/queue", cookies=ckA)
+    check("v3 queue: pending is the default lane and carries the honest "
+          "columns (post, submitter, status, audit events) — and pending is "
+          "where BOTH lane-A posts wait (presence and likes-omitted alike)",
+          stt == 200 and len(pl.get("rows") or []) == 2
+          and (pl["rows"][0].get("submitter") or pl["rows"][0].get("handle"))
+          and pl["rows"][0].get("events") == [], str(pl)[:110])
+
+    # — manual verification equals automatic truth (the fairness spine)
+    stt, pl = gov("POST", "/api/admin/verify", cookies=ckA, headers=JSONV,
+                  body={"id": idP, "likes": 8, "reason": "battery eye"})
+    check("v3 fairness: a manually verified count of 8 scores the IDENTICAL "
+          "number as the automatic 8 — one curve, one truth (18 pts)",
+          stt == 200 and pl.get("ok") and abs(pl.get("points", -1) - 18.0) < .001,
+          str(pl)[:110])
+    rowP = dbV.conn.execute("SELECT like_status, like_measured_at,"
+                            " submitted_at FROM submissions WHERE id=?",
+                            (idP,)).fetchone()
+    check("v3 policy: a count without an explicit timestamp inherits the "
+          "SUBMISSION time (official count = submit-time snapshot)",
+          rowP["like_status"] == "verified"
+          and abs(rowP["like_measured_at"] - rowP["submitted_at"]) < .001,
+          str(dict(rowP))[:90])
+    ev1 = dbV.conn.execute("SELECT COUNT(*) n FROM admin_events"
+                           " WHERE submission_id=?", (idP,)).fetchone()["n"]
+    check("v3 audit: the verification appended exactly one immutable event",
+          ev1 == 1, str(ev1))
+
+    # — idempotence: the repeat moves history, never points
+    gov("POST", "/api/admin/verify", cookies=ckA, headers=JSONV,
+        body={"id": idP, "likes": 8, "reason": "double click"})
+    ev2 = dbV.conn.execute("SELECT COUNT(*) n FROM admin_events"
+                           " WHERE submission_id=?", (idP,)).fetchone()["n"]
+    ptsP = dbV.conn.execute("SELECT points FROM submissions WHERE id=?",
+                            (idP,)).fetchone()["points"]
+    check("v3 idempotence: a repeated verification re-scores the same number "
+          "and merely appends its own event (a duplicate request never "
+          "double-awards)", ev2 == 2 and abs(ptsP - 18.0) < .001, str(ev2))
+    evRow = dbV.conn.execute(
+        "SELECT admin, action, prev_count, new_count, prev_points, new_points,"
+        " measured_at, acted_at, reason, method, scoring_version"
+        " FROM admin_events WHERE submission_id=? ORDER BY id LIMIT 1",
+        (idP,)).fetchone()
+    check("v3 audit: every event names the admin, the action, the scoring "
+          "version, old and new counts and points, and both timestamps — the "
+          "first event says where the count came from (method manual)",
+          evRow["admin"] == "root@paper.io" and evRow["action"] == "verify"
+          and evRow["new_count"] == 8 and evRow["prev_count"] is None
+          and abs((evRow["new_points"] or 0) - 18.0) < .001
+          and evRow["scoring_version"] == "pb-v3.0"
+          and evRow["measured_at"] and evRow["acted_at"]
+          and evRow["reason"] == "battery eye", str(dict(evRow))[:120])
+
+    # — the curve itself, end-to-end through score_post (worked examples)
+    scc = stV.pb["scoring"]
+    p300, _ = score_post(dict(likes=300, replies=3, reposts=4, quotes=5,
+                              impressions=66), scc, {})
+    p900, _ = score_post(dict(likes=900, replies=None, reposts=None,
+                              quotes=None, impressions=None), scc, {})
+    check("v3 curve: the tail rises then saturates — 300 likes -> 160, and "
+          "900 likes hits the 210 total cap (bonus capped at 200)",
+          abs(p300 - 160.0) < .001 and abs(p900 - 210.0) < .001,
+          f"{p300}/{p900}")
+
+    # — dispute: flags the row, keeps the score, never clears the lane by lie
+    stt, pl = gov("POST", "/api/admin/verify", cookies=ckA, headers=JSONV,
+                  body={"id": idQ, "status": "dispute", "reason": "suspicious"})
+    rowQ2 = dbV.conn.execute("SELECT like_status, points FROM submissions"
+                             " WHERE id=?", (idQ,)).fetchone()
+    check("v3 dispute: a disputed row keeps its score, wears the flag, and "
+          "the count stays frozen for later correction",
+          stt == 200 and rowQ2["like_status"] == "disputed"
+          and abs(rowQ2["points"] - 18.0) < .001
+          and len(sV.admin_queue(cidV, "disputed")) == 1, str(pl)[:90])
+    stt, pl = gov("POST", "/api/admin/verify", cookies=ckA, headers=JSONV,
+                  body={"id": idM, "likes": 42, "reason": "corrected eye"})
+    check("v3 correction: verifying after a dispute re-scores and the "
+          "history stands (events only ever append)",
+          stt == 200 and len(sV.admin_queue(cidV, "verified")) >= 1, str(pl)[:80])
+
+    # — ordinary accounts cannot touch the machine at all
+    stt, pl = gov("POST", "/api/admin/verify", cookies=ckP, headers=JSONV,
+                  body={"id": idP, "likes": 1})
+    check("v3 gate: even POSTing the right shape, a non-admin is 403 on "
+          "verify — users never supply scores", stt == 403)
+    for bad, why in (({"id": idP, "likes": -5}, "negative"),
+                     ({"id": idP, "likes": "seven"}, "word"),
+                     ({"id": idP, "likes": True}, "boolean"),
+                     ({"id": "nope", "likes": 3}, "bad id"),
+                     ({}, "no id")):
+        stt, pl = gov("POST", "/api/admin/verify", cookies=ckA, headers=JSONV,
+                      body=bad)
+        check(f"v3 input: {why} arrives safe ({pl.get('error')})",
+              stt in (400, 404, 409), f"{stt}/{pl.get('error')}")
+    stt, pl = gov("POST", "/api/admin/verify", cookies=ckA, headers=JSONV,
+                  body={"id": idP, "likes": 20_000_001, "reason": "moon"})
+    check("v3 input: a moon-shot count is refused (suspicious_count)",
+          stt == 400 and pl.get("error") == "suspicious_count", str(pl)[:80])
+    gov("POST", "/api/admin/verify", cookies=ckA, headers=JSONV,
+        body={"id": idP, "likes": 12, "reason": "moved the number"})
+    corr = [r["id"] for r in sV.admin_queue(cidV, "corrected")]
+    check("v3 corrected lane: only a count that MOVED the number counts as "
+          "a correction — idempotent repeats stay mere history",
+          corr == [idP], str(corr))
+
+    # — the gate fails CLOSED when the realm forgets its admins
+    stV.admset = set()
+    stt, pl = gov("GET", "/api/admin/queue", cookies=ckA)
+    check("v3 gate: an empty allowlist answers 403 no-admins-configured "
+          "rather than handing out the keys", stt == 403
+          and pl.get("error") == "no_admins_configured")
+    stV.admset = set(["root@paper.io"])
+
+    # — transaction integrity: lightning after the UPDATE rolls the whole act
+    class ShakyConn:
+        """stands in for the connection: the second statement (the UPDATE)
+        is where the battery lightning strikes."""
+        def __init__(self, inner):
+            self.inner, self.n = inner, 0
+        def execute(self, sql, params=()):
+            self.n += 1
+            if self.n == 2:
+                raise RuntimeError("battery lightning")
+            return self.inner.execute(sql, params)
+        def commit(self):
+            return self.inner.commit()
+        def rollback(self):
+            return self.inner.rollback()
+
+    real_conn = dbV.conn
+    dbV.conn = ShakyConn(real_conn)
+    try:
+        sV.verify_like(idM, "root@paper.io", 99)
+        struck = False
+    except RuntimeError:
+        struck = True
+    dbV.conn = real_conn
+    real_conn.rollback()
+    check("v3 transaction: the service reports the lightning (the exception "
+          "reaches the caller) — nothing swallowed", struck)
+    evM = dbV.conn.execute("SELECT COUNT(*) n FROM admin_events"
+                           " WHERE submission_id=?", (idM,)).fetchone()["n"]
+    evM0 = dbV.conn.execute("SELECT COUNT(*) n FROM admin_events"
+                            " WHERE submission_id=? AND action='verify'"
+                            " AND new_count=42", (idM,)).fetchone()["n"]
+    ptsM_ = dbV.conn.execute("SELECT points FROM submissions WHERE id=?",
+                             (idM,)).fetchone()["points"]
+    check("v3 transaction: lightning between the two statements rolls the "
+          "whole verification — score, count, and audit move as one",
+          evM == evM0 and evM == 1 and abs(ptsM_ - 52.0) < .001, f"{evM}/{evM0}")
+
+    # — the two public faces still tell one story; the duplicate wall holds
+    dashV = sV.dashboard(signedP, cidV)
+    boardV = sV.leaderboard(cidV)
+    mine = [r for r in boardV["rows"] if r["user"]["id"] == accP["id"]]
+    check("v3 surfaces: dashboard and board agree on the authoritative "
+          "points, and the board says how many counts are pending",
+          len(mine) == 1 and abs(mine[0]["points"] - dashV["points"]) < .001
+          and mine[0]["pending"] == 0, str(mine)[:110])
+    resD = sV.submit_post(signedP, "https://x.com/quiet/status/7001", cidV)
+    check("v3 walls: the duplicate protection still speaks BEFORE scoring, "
+          "and answers with the original's points (owner self)",
+          not resD.get("ok") and resD.get("reason") == "duplicate_submission"
+          and resD.get("owner") == "self" and abs((resD.get("points") or 0) - 22.0) < .001,
+          str(resD)[:90])
 
     print("failures:", len(FAILURES))
     return len(FAILURES)

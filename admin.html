@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>$PAPER — admin review</title>
+<link rel="icon" type="image/jpeg" href="public/paper-mascot.jpeg">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/paper.css">
+<link rel="stylesheet" href="css/paperboard.css">
+<style>
+  .admin-wrap { max-width: 1180px; margin: 0 auto; padding: 24px 20px 64px; }
+  .admin-head { display: flex; justify-content: space-between; align-items: baseline;
+                flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  .admin-head h1 { margin: 0; font-size: 1.35rem; }
+  .admin-note { opacity: .72; font-size: .85rem; }
+  .admin-tools { display: flex; gap: 10px; align-items: center; margin-bottom: 14px;
+                 flex-wrap: wrap; }
+  .admin-tools select, .admin-tools button, .admin-tools input {
+                 font: inherit; padding: 4px 8px; }
+  .admin-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+  .admin-table th, .admin-table td { text-align: left; padding: 8px 10px;
+                 border-bottom: 1px solid currentColor; vertical-align: top; }
+  .admin-table thead th { opacity: .72; font-size: .74rem; text-transform: uppercase;
+                 letter-spacing: .06em; }
+  .admin-msg { margin-top: 16px; font-size: .84rem; opacity: .8; }
+  .admin-msg.bad { color: var(--danger, #c0392f); opacity: 1; }
+  .badge { padding: 2px 8px; border: 1px solid currentColor; border-radius: 999px;
+           font-size: .72rem; white-space: nowrap; }
+  .badge.pending { opacity: .85; }
+  details.evt summary { cursor: pointer; opacity: .72; font-size: .78rem; }
+  details.evt li { font-size: .78rem; opacity: .85; margin-bottom: 3px; }
+  .faint { opacity: .6; font-size: .76rem; }
+</style>
+</head>
+<body>
+  <div class="admin-wrap">
+    <header class="admin-head">
+      <h1>Paperboard — admin review</h1>
+      <div>
+        <a href="/">the front page</a>
+        <span class="admin-note" data-slot="who">checking the key…</span>
+      </div>
+    </header>
+
+    <p class="admin-note" data-slot="banner" hidden></p>
+
+    <section data-slot="room" hidden>
+      <div class="admin-tools">
+        <label for="flt">review queue</label>
+        <select id="flt">
+          <option value="pending" selected>pending</option>
+          <option value="verified">verified</option>
+          <option value="disputed">disputed</option>
+          <option value="corrected">corrected</option>
+        </select>
+        <button type="button" data-act="reload">refresh</button>
+        <span class="faint">the count is confirmed against the official
+          measurement policy before it is saved</span>
+      </div>
+      <table class="admin-table">
+        <thead><tr>
+          <th>Post</th><th>Submitter</th><th>Submitted</th><th>Retrieval</th>
+          <th>Observation</th><th>Base</th><th>Bonus</th><th>Status</th>
+          <th>Verify</th>
+        </tr></thead>
+        <tbody data-slot="rows"></tbody>
+      </table>
+      <p class="admin-msg" data-slot="msg"></p>
+    </section>
+  </div>
+  <script src="js/admin.js" defer></script>
+</body>
+</html>

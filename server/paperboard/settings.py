@@ -30,6 +30,12 @@ class Settings:
         self.port = int(_env("PAPER_PORT", "5199"))
         self.db_path = _env("PAPER_DB_PATH", os.path.join(SERVER_DIR, "paperboard.sqlite3"))
         self.admin_token = _env("PAPER_ADMIN_TOKEN")          # None until provided
+        # the account-era admin gate (pb-v3): an explicit allowlist of
+        # emails, comma separated. unset means NO admin at all — the admin
+        # door fails closed, never open, and no secret rides the wire.
+        self.admset = frozenset(
+            e.strip().lower()
+            for e in (_env("PAPER_ADMINS", "") or "").split(",") if e.strip())
 
         self.x_client_id = _env("X_CLIENT_ID")               # OAuth2 public client id
         self.x_client_secret = _env("X_CLIENT_SECRET")       # confidential, server-only

@@ -400,20 +400,166 @@ class Service:
         audit["verification"] = verification
         audit["provider"] = post.get("provider") or "unknown"
         audit["fetched_at"] = post.get("fetched_at")
+        # the like-count truth machine, recorded at insert time (pb-v3):
+        # an automatic observation is a 'reported' candidate (it becomes
+        # authoritative only when an admin verifies it); absence is
+        # 'pending' — the review queue's entrance. never a zero.
+        likes_obs = metrics.get("likes")
+        like_status = "reported" if likes_obs is not None else "pending"
+        official_likes = likes_obs
+        like_measured_at = t if likes_obs is not None else None
+        like_source = (post.get("provider") if likes_obs is not None else None)
         self.db.conn.execute(
             "INSERT INTO submissions(account_id,competition_id,x_post_id,author_handle,"
             "url,text,posted_at,submitted_at,verified,eligible,reason,points,"
-            "metrics_json,score_json,verification) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "metrics_json,score_json,verification,like_status,official_likes,"
+            "like_measured_at,like_source) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (account["id"], competition_id, post_id, handle, url,
              text, post.get("posted_at"), t, 1, int(eligible), reason, points,
-             json.dumps(metrics), json.dumps(audit), verification))
+             json.dumps(metrics), json.dumps(audit), verification,
+             like_status, official_likes, like_measured_at, like_source))
         self.db.conn.commit()
         return dict(ok=True, reason=reason, submission=dict(
             id=self._last_id(), x_post_id=post_id, author=handle, url=url,
             posted_at=post.get("posted_at"), submitted_at=t, eligible=eligible,
             reason=reason, points=points, provided=audit["provided"],
             missing=audit["missing"], matched=matched, text=text,
-            verification=verification, provider=audit["provider"]))
+            verification=verification, provider=audit["provider"],
+            like_status=like_status))
+
+    # ------------------------------------------------------- manual verification
+    def verify_like(self, submission_id, admin_email, likes=None,
+                    measured_at=None, reason="", method="manual",
+                    competition_id=None):
+        """An admin's hand on the official like count — the only door that
+        writes one (the submit path records observations; it never crowns).
+
+        action is 'verify' (a count rides along) or 'dispute' (the admin
+        looked and the count cannot stand; no count given). the row state
+        machine is: pending -> verified (via 'verify') with disputed as a
+        flag an admin sets through 'dispute' — never from the browser at
+        large, and never silently.
+
+        points are RECOMPUTED from the stored snapshot with the count
+        substituted in — a browser never supplies a score. a repeat of the
+        same verification is therefore idempotent by construction: the audit
+        gains an event row, and the points are the very same number.
+        """
+        row = self.db.conn.execute(
+            "SELECT id, account_id, submitted_at, points, metrics_json,"
+            " score_json, like_status, official_likes, like_measured_at, eligible"
+            " FROM submissions WHERE id=?", (submission_id,)).fetchone()
+        if row is None:
+            return dict(ok=False, reason="submission_not_found")
+        action = "dispute" if likes is None else "verify"
+        if likes is not None and (isinstance(likes, bool)
+                                  or not isinstance(likes, int)
+                                  or likes < 0):
+            return dict(ok=False, reason="bad_count")
+        if action == "verify" and likes > 10_000_000:
+            return dict(ok=False, reason="suspicious_count")
+        if action == "dispute" and row["like_status"] not in ("pending", "reported",
+                                                              "verified", "disputed"):
+            return dict(ok=False, reason="nothing_to_dispute")
+
+        metrics = json.loads(row["metrics_json"] or "{}")
+        post = dict(metrics)                    # the snapshot, as one post view
+        prev_score = json.loads(row["score_json"] or "{}")
+        prev_points = row["points"]
+        prev_count = row["official_likes"]
+        t = time.time()
+        if action == "dispute":
+            # the count stands (it is the last official word) but wears the
+            # flag; the snapshot stays the authority for the recomputation.
+            like_status = "disputed"
+            official = row["official_likes"]
+            measured = row["like_measured_at"] or t
+            post["likes"] = official
+            ctx = {"disputed": True}
+        else:
+            like_status = "verified"
+            official = likes
+            measured = float(measured_at) if measured_at else row["submitted_at"]
+            post["likes"] = likes
+            post.pop("replies", None)           # v3 ignores them in scoring;
+            post.pop("reposts", None)           #   the stored snapshot still
+            post.pop("quotes", None)            #   carries the untouched
+            post.pop("impressions", None)       #   audit evidence
+            ctx = {}
+        points, audit = score_post(post, self.scoring, ctx)
+        audit["rescored_from"] = {
+            "points": prev_points, "status": row["like_status"],
+            "scoring_version": (prev_score.get("scoring_version")
+                                or "unversioned")}
+        if action == "verify":
+            audit["provider"] = "manual:" + (method or "manual")
+        new_score_json = json.dumps(audit)
+
+        # the two statements move together or not at all: a database failure
+        # after the UPDATE must not strand a rescore without its audit event.
+        try:
+            self.db.conn.execute(
+                "UPDATE submissions SET points=?, score_json=?, like_status=?,"
+                " official_likes=?, like_measured_at=?, like_source=?"
+                " WHERE id=?",
+                (points, new_score_json, like_status, official, measured,
+                 method or ("manual" if action == "verify" else None),
+                 submission_id))
+            self.db.conn.execute(
+                "INSERT INTO admin_events(submission_id,admin,action,prev_count,"
+                "new_count,prev_points,new_points,measured_at,acted_at,reason,"
+                "method,scoring_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (submission_id, admin_email, action, prev_count, official,
+                 prev_points, points, measured, t,
+                 (reason or "")[:200] or ("manual dispute" if action == "dispute"
+                                          else "manual verification"),
+                 method or ("manual verification" if action == "verify" else "manual dispute"),
+                 self.scoring.get("version", "unversioned")))
+            self.db.conn.commit()
+        except Exception:
+            self.db.conn.rollback()
+            raise
+        return dict(ok=True, submission_id=submission_id, action=action,
+                    points=points, like_status=like_status,
+                    official_likes=official, measured_at=measured,
+                    audit=audit)
+
+    def admin_queue(self, competition_id, status="pending"):
+        """the admin review queue — current rows plus each row's event
+        history. status filter: pending | verified | disputed | corrected
+        ('corrected' = a verified row whose history shows a later count that
+        actually MOVED the number — a double-click re-verify is history,
+        not a correction)."""
+        where = {"pending": "s.like_status = 'pending'",
+                 "verified": "s.like_status = 'verified'",
+                 "disputed": "s.like_status = 'disputed'",
+                 "corrected": ("s.like_status = 'verified' AND EXISTS"
+                               "(SELECT 1 FROM admin_events e"
+                               " WHERE e.submission_id = s.id"
+                               " AND e.action = 'verify'"
+                               " AND e.prev_count IS NOT NULL"
+                               " AND e.prev_count <> e.new_count)")}[status]
+        rows = self.db.conn.execute(
+            "SELECT s.id, s.account_id, s.x_post_id, s.url, s.submitted_at, s.points,"
+            " s.official_likes, s.like_status, s.like_measured_at, s.like_source,"
+            " COALESCE(a.username, a.email) AS submitter, a.email AS submitter_email"
+            " FROM submissions s JOIN accounts a ON a.id = s.account_id"
+            " WHERE s.competition_id = ? AND s.eligible = 1 AND " + where +
+            " ORDER BY s.id", (competition_id,)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            events = self.db.conn.execute(
+                "SELECT admin, action, prev_count, new_count, prev_points,"
+                " new_points, measured_at, acted_at, reason, method,"
+                " scoring_version FROM admin_events WHERE submission_id = ?"
+                " ORDER BY id", (r["id"],)).fetchall()
+            d["events"] = [dict(e) for e in events]
+            d["base"] = float(self.scoring.get("basePerPost", 0))
+            d["like_bonus"] = round(max(0.0, (r["points"] or 0.0) - d["base"]), 2)
+            out.append(d)
+        return out
 
     # --------------------------------------------------------------- dashboard
     def dashboard(self, account, competition_id=None):
@@ -441,12 +587,17 @@ class Service:
             if r["user_id"] == aid:
                 my_rank = rank
         est = estimate(ranked, self.prize).get(aid, dict(share_pct=0.0, share_est=0.0))
+        base = float(self.scoring.get("basePerPost", 0))
         recent = [dict(x_post_id=r["x_post_id"], author=r["author_handle"],
                        points=r["points"], eligible=bool(r["eligible"]),
-                       reason=r["reason"], submitted_at=r["submitted_at"])
+                       reason=r["reason"], submitted_at=r["submitted_at"],
+                       like_status=r["like_status"],
+                       like_bonus=(round(max(0.0, (r["points"] or 0.0) - base), 2)
+                                   if r["eligible"] else None))
                   for r in self.db.conn.execute(
-                      "SELECT x_post_id,author_handle,points,eligible,reason,submitted_at"
-                      " FROM submissions WHERE account_id=? AND competition_id=?"
+                      "SELECT x_post_id,author_handle,points,eligible,reason,"
+                      "submitted_at,like_status FROM submissions"
+                      " WHERE account_id=? AND competition_id=?"
                       " ORDER BY submitted_at DESC LIMIT 5", (aid, competition_id))]
         rewards = [dict(r) for r in self.db.conn.execute(
             "SELECT competition_id,wallet_address,amount,asset,status,created_at,"
@@ -952,11 +1103,14 @@ class Service:
         reported (a presence row adds nothing — no invented zero), and the
         share is an estimate: the ledger moves money, not the scheduler."""
         t = now()
+        base_each = float(self.scoring.get("basePerPost", 0))
         grouped = self.db.conn.execute(
             "SELECT s.account_id AS user_id,"
             " COALESCE(a.username, a.email) AS handle,"
             " SUM(s.points) AS points,"
-            " SUM(CASE WHEN s.eligible THEN 1 ELSE 0 END) AS posts_count"
+            " SUM(CASE WHEN s.eligible THEN 1 ELSE 0 END) AS posts_count,"
+            " SUM(CASE WHEN s.eligible AND s.like_status='pending'"
+            "     THEN 1 ELSE 0 END) AS pending"
             " FROM submissions s JOIN accounts a ON a.id = s.account_id"
             " WHERE s.competition_id=? GROUP BY s.account_id"
             " ORDER BY points DESC, s.account_id", (competition_id,)).fetchall()
@@ -984,8 +1138,13 @@ class Service:
             est = shares.get(r["user_id"], dict(share_pct=0.0, share_est=0.0))
             rows.append(dict(
                 rank=rank, tier=tier_for(rank, self.tiers), movement=None,
-                user=dict(handle=r["handle"], name=r["handle"], avatar=None),
+                user=dict(id=r["user_id"], handle=r["handle"], name=r["handle"],
+                          avatar=None),
                 points=r["points"], posts=r["posts_count"],
+                pending=r["pending"] or 0,
+                base_points=round(base_each * (r["posts_count"] or 0), 2),
+                bonus_points=round(max(0.0, (r["points"] or 0.0))
+                                   - base_each * (r["posts_count"] or 0), 2),
                 engagement=engaged.get(r["user_id"], 0),
                 share_pct=est["share_pct"], share_est=est["share_est"]))
         return dict(snapshot_id=None, generated_at=t, total_points=total,

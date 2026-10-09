@@ -46,8 +46,12 @@ export function Scoring() {
                 <tr><td>per-post cap</td><td data-set="w-cap">—</td></tr>
               </tbody>
             </table>
-            <p style="margin-top:.8rem">Impressions never print linearly —
-               a saturating curve keeps one bloated post from buying the front page.</p>
+            <p style="margin-top:.8rem">Since pb-v3: <b>only likes add points</b> —
+               one per like to the first hundred, a slower tail after, hard-capped
+               (w-cap shows the total ceiling). A like count the server could not
+               retrieve holds its bonus PENDING — never scored as a zero — until
+               an official count (automatic or admin-verified) settles it; the
+               curve is the same either way.</p>
           </div>
 
           <div>
@@ -55,8 +59,8 @@ export function Scoring() {
             <ul>
               <li><b>Duplicates</b> — same author, same text inside the window: the first one scores, the echoes watch from the breakdown.</li>
               <li><b>Frequency cap</b> — a wall of posts stops farming after the configured count.</li>
-              <li><b>Thin signal</b> — near-zero views and zero engagement prints half points.</li>
-              <li><b>Audit trail</b> — every stored point keeps its contributions; any row can be explained, in court.</li>
+              <li><b>Honest zeros</b> — a verified zero is a measurement, not a penalty; an unmeasured post simply waits (since v3 the thin-signal discount rests).</li>
+              <li><b>Audit trail</b> — every stored point keeps its contributions; any row can be explained, in court. An official like count may be corrected — never silently — by an admin.</li>
             </ul>
             <p><b class="g">Client input is never trusted:</b> no endpoint takes a
                score, a ranking, or a reward from the browser.</p>

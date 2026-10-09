@@ -169,7 +169,7 @@ function paintBoard() {
       <td class="cell-name nm">
         <a class="nm__handle" href="https://x.com/${r.user.handle}" target="_blank" rel="noopener noreferrer">@${r.user.handle}</a>
       </td>
-      <td class="num num--pts" data-label="Points">${fmt(r.points, 1)}</td>
+      <td class="num num--pts" data-label="Points">${fmt(r.points, 1)}${r.bonus_points ? ` <span class="dim">(${fmt(r.base_points, 0)}+${fmt(r.bonus_points, 1)})</span>` : ""}${r.pending ? ` <span class="dim" title="official like count awaiting admin review">⏳${r.pending}</span>` : ""}</td>
       <td class="num" data-label="Posts">${r.posts}</td>
       <td class="num" data-label="Receipts">${fmt(r.engagement)}</td>
       <td class="num" data-label="Share">${r.share_pct ? r.share_pct.toFixed(1) + "%" : "—"}${r.share_est ? ` <span class="dim">≈${fmt(r.share_est)}</span>` : ""}</td>
@@ -244,7 +244,8 @@ function paintDash(animate = true) {
   if (recent) recent.innerHTML = (d.recent && d.recent.length)
     ? d.recent.map((r) => `<p class="dash-line"><b class="${r.points > 0 ? "pos" : "dim"}">${r.points > 0 ? "+" : ""}${fmt(r.points, 1)}</b> pts
        · <a href="${esc(rUrl(r))}" target="_blank" rel="noopener noreferrer">@${esc(r.author)}</a>
-       <span class="dim">${r.eligible ? "" : `· ${esc(r.reason.replace("_", " "))}`}</span></p>`).join("")
+       <span class="dim">${r.eligible ? "" : `· ${esc(r.reason.replace("_", " "))}`}</span>
+       <span class="dim">${r.like_status === "pending" ? "· like count pending review" : (r.like_status === "disputed" ? "· likes disputed" : "")}</span></p>`).join("")
     : `<p class="dash-line dim">nothing yet — paste a post up top.</p>`;
   const rewards = $('[data-slot="acct-rewards"]');
   if (rewards) rewards.innerHTML = (d.rewards && d.rewards.length)
