@@ -22,6 +22,7 @@ import hashlib
 import json
 import re
 import secrets
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -582,6 +583,26 @@ class FallbackXClient:
                 raise XError(f"provider trouble: {prim_err}; {bk_err}")
 
 
+_SSL_CTX = []   # memo: empty means 'never asked'; [None] means 'asked, no bundle'
+
+
+def _ssl_context():
+    """One private TLS context, built lazily, once. The repo python ships
+    without a system CA bundle (curl is unaffected), so a provider
+    handshake would die on verification — and a fail-closed provider that
+    cannot shake hands is indistinguishable from a down one. The box
+    carries its bundle at /etc/ssl/cert.pem; a box whose system store
+    already answers returns None and rides urlopen's default."""
+    if not _SSL_CTX:
+        try:
+            ctx = ssl.create_default_context()
+            ctx.load_verify_locations(cafile="/etc/ssl/cert.pem")
+        except Exception:
+            ctx = None
+        _SSL_CTX.append(ctx)
+    return _SSL_CTX[0]
+
+
 def _polite_get(base, path, timeout, retries, hits, rpm, clock, tag):
     """One bounded-retry GET in the polite lane: 404 is a verdict, 429 is
     pace, 5xx and transport get the one retry — and nothing else retries.
@@ -597,7 +618,8 @@ def _polite_get(base, path, timeout, retries, hits, rpm, clock, tag):
         hits.append(t)
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "paperboard/0.3"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout,
+                                        context=_ssl_context()) as resp:
                 return resp.read()
         except urllib.error.HTTPError as e:
             if e.code == 404:

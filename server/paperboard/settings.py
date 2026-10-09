@@ -38,17 +38,25 @@ class Settings:
             "X_REDIRECT_URI", f"http://localhost:{self.port}/api/auth/x/callback"
         )
 
-        # mock mode: explicit override, or auto = missing live credentials
-        mock_env = _env("PAPER_MOCK")                         # "1"/"0"/None
+        # mode selection is EXPLICIT (2026-10, the zero-cost stack era): the
+        # live stack needs no X keys at all, so the absence of the legacy
+        # paid-API keys must never imply mock. Unset defaults to LIVE, which
+        # means a deployment can never slip into the mock demo by silence;
+        # a value that means neither side fails the boot loudly.
+        mock_env = _env("PAPER_MOCK")                         # any spelling/None
         if mock_env is None:
-            self.mock = not (self.x_client_id and self.x_bearer)
-            self.mock_reason = (
-                "missing X_CLIENT_ID / X_API_BEARER — running on the mock feed"
-                if self.mock else "live X v2 feed"
-            )
+            self.mock = False
+            self.mock_reason = "default: live zero-cost stack (no X credentials needed)"
+        elif mock_env.lower() in ("1", "true", "yes"):
+            self.mock = True
+            self.mock_reason = "mock demo feed (PAPER_MOCK opted in)"
+        elif mock_env.lower() in ("0", "false", "no"):
+            self.mock = False
+            self.mock_reason = "live zero-cost stack (PAPER_MOCK opted out)"
         else:
-            self.mock = mock_env in ("1", "true", "yes")
-            self.mock_reason = "forced by PAPER_MOCK"
+            raise ValueError(f"PAPER_MOCK={mock_env!r} means neither mock nor "
+                             "live — refusing to guess (use 1/true/yes or "
+                             "0/false/no)")
 
         # scheduler on/off (cron-style: run `run.py --once` with PAPER_SCHEDULER=0)
         self.scheduler = _env("PAPER_SCHEDULER", "1") in ("1", "true", "yes")
@@ -82,6 +90,12 @@ class Settings:
         return {
             "mode": "mock" if self.mock else "live",
             "modeReason": self.mock_reason,
+            # where truth comes from — stated so plainly that absent legacy
+            # X keys can never be mistaken for mock data. (No secret-shaped
+            # strings ride here: the battery itself forbids the word.)
+            "providerStrategy": ("mock scripted world (demo)" if self.mock
+                                 else "fxtwitter primary, oembed fallback —"
+                                      " zero-cost, no keys needed"),
             "brand": self.raw["brand"],
             "refreshMinutes": pb["refreshMinutes"],
             "schedulerOn": self.scheduler,

@@ -282,6 +282,10 @@ def main():
     check("http: config has no secret keys",
           all(k not in str(payload).lower() for k in
               ("client_secret", "bearer", "admin_token")), str(payload)[:120])
+    check("http: /api/config names the provider strategy honestly — the"
+          " battery env opted into mock, and the payload says so",
+          stt == 200 and "mock" in str(payload.get("providerStrategy")),
+          str(payload.get("providerStrategy")))
     stt, payload = go("GET", "/api/leaderboard")
     check("http: leaderboard rows", stt == 200 and len(payload.get("rows", [])) >= 1)
     stt, payload = go("GET", "/api/me")
@@ -901,7 +905,7 @@ def main():
     xapimod.urllib.request.urlopen = None      # set per-scenario below
 
     def stub(route):
-        def r(req, timeout=None):
+        def r(req, timeout=None, context=None):
             u = req.full_url
             who = "fx" if "fxtwitter" in u else "oe"
             counters[who] += 1
@@ -1112,6 +1116,71 @@ def main():
               str(subN)[:140])
     finally:
         xapimod.urllib.request.urlopen = saved_urlopen
+
+    # --------------------------- mode selection: explicit, never guessed -----
+    # the doctrine (2026-10): the live stack needs no X keys, so missing
+    # paid-API keys must not imply mock; unset defaults to LIVE so a
+    # deployment can never fall into the demo world by silence; a value
+    # that means neither side fails the boot loudly. (Unit-level: Settings
+    # only — no network, no live claim.)
+    saved_mode_env = os.environ.get("PAPER_MOCK")
+    saved_x_id = os.environ.pop("X_CLIENT_ID", None)
+    saved_x_bearer = os.environ.pop("X_API_BEARER", None)   # absent on this box
+
+    def mode_case(value):
+        if value is None:
+            os.environ.pop("PAPER_MOCK", None)
+        else:
+            os.environ["PAPER_MOCK"] = value
+        try:
+            st2 = Settings()
+        except ValueError as e:
+            return ("ValueError", str(e), "")
+        view = st2.public_view()
+        return (st2.mock, view["mode"], view["providerStrategy"])
+
+    mc1, mc0, mcD = mode_case("1"), mode_case("0"), mode_case(None)
+    mcT, mcN, mcX = mode_case("true"), mode_case("NO"), mode_case("sideways")
+
+    try:
+        check("mode: PAPER_MOCK=1 opts INTO the mock demo — and the config"
+              " view calls it mock, nothing silent about it",
+              mc1[0] is True and mc1[1] == "mock" and "mock" in mc1[2])
+        check("mode: PAPER_MOCK=0 selects the live zero-cost stack with NO"
+              " legacy keys present — the keyless truth this fix is about",
+              mc0[0] is False and mc0[1] == "live" and "fxtwitter" in mc0[2])
+        check("mode: unset defaults to LIVE — production cannot slip into"
+              " the mock demo by silence",
+              mcD[0] is False and mcD[1] == "live")
+        check("mode: truthy/falsy spellings fold clearly (true to mock, NO"
+              " to live) — case is not a cliff",
+              mcT[0] is True and mcN[0] is False)
+        check("mode: a value meaning neither side fails the boot loudly and"
+              " names the variable — no silent guessing",
+              mcX[0] == "ValueError" and "PAPER_MOCK" in mcX[1],
+              str(mcX[1])[:70])
+
+        import run as runmod                              # the boot entry
+        os.environ["PAPER_MOCK"] = "1"
+        prov_m = runmod.make_provider(Settings())
+        os.environ["PAPER_MOCK"] = "0"
+        prov_l = runmod.make_provider(Settings())
+        check("factory: mode=mock yields the scripted world; mode=live"
+              " yields the FULL ladder — FxEmbed primary, oEmbed backup —"
+              " with no keys in the air",
+              isinstance(prov_m, MockXClient)
+              and isinstance(prov_l, FallbackXClient)
+              and isinstance(prov_l.p, FXTwitterXClient)
+              and isinstance(prov_l.b, OembedXClient))
+    finally:
+        if saved_mode_env is not None:
+            os.environ["PAPER_MOCK"] = saved_mode_env
+        else:
+            os.environ.pop("PAPER_MOCK", None)
+        for env_name, env_val in (("X_CLIENT_ID", saved_x_id),
+                                  ("X_API_BEARER", saved_x_bearer)):
+            if env_val is not None:
+                os.environ[env_name] = env_val
 
     print("failures:", len(FAILURES))
     return len(FAILURES)

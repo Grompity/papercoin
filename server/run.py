@@ -19,8 +19,18 @@ sys.path.insert(0, __file__.rpartition("/")[0])  # server/
 
 from paperboard import db as dbmod, http_app, service as svc  # noqa: E402
 from paperboard.settings import Settings                      # noqa: E402
-from paperboard.xapi import (MockXClient, SyndicationXClient, FXTwitterXClient,
+from paperboard.xapi import (MockXClient, FXTwitterXClient,
                              OembedXClient, FallbackXClient)             # noqa: E402
+
+
+def make_provider(settings):
+    """The provider factory — the mode decision lands HERE and only here:
+    mock rides the scripted demo world; live rides the zero-cost ladder
+    (FxEmbed primary, official oEmbed behind it), which needs no X keys at
+    all. (SyndicationXClient stays in xapi as the recorded historic route.)"""
+    if settings.mock:
+        return MockXClient(settings)
+    return FallbackXClient(FXTwitterXClient(settings), OembedXClient(settings))
 
 
 def build():
@@ -29,9 +39,7 @@ def build():
     # live mode runs the zero-cost stack (2026-10): FxEmbed first for the
     # engagement truth, official oEmbed behind it for presence-only proof —
     # no X Connect, no per-user OAuth, no paid API, no wallet ceremony.
-    # (SyndicationXClient stays as the recorded historic route.)
-    x = MockXClient(settings) if settings.mock else \
-        FallbackXClient(FXTwitterXClient(settings), OembedXClient(settings))
+    x = make_provider(settings)
     svc_ = svc.Service(database, x, settings)
     cid = svc_.ensure_competition()
     router = http_app.Router(svc_, settings, database, x)
@@ -160,8 +168,10 @@ def main():
         print("[once] standings refreshed:", svc_.refresh_standings(cid))
         return
 
+    prov = (settings.mock and "mock scripted world"
+            or "FxEmbed first, oEmbed behind (zero-cost, no keys)")
     print(f"[paperboard] :{settings.port}  mode={settings.mock and 'mock' or 'live'}"
-          f"  ({settings.mock_reason})")
+          f"  provider: {prov}  ({settings.mock_reason})")
     httpd = ThreadingHTTPServer(("0.0.0.0", settings.port), Handler)
     httpd.router = router
     if settings.scheduler and svc_.active_competition():

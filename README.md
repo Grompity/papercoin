@@ -40,8 +40,12 @@ the board server serves the site AND the api from one port — run this:
 # open http://localhost:5199
 ```
 
-- mock mode is automatic when `X_CLIENT_ID` / `X_API_BEARER` are absent
-  (a seeded demo world; the UI stamps every mock number `mock feed`).
+- **mode is explicit** (the 2026-10 doctrine): `PAPER_MOCK=1` (`true`/`yes`)
+  opts into the mock demo world; `PAPER_MOCK=0` (`false`/`no`) selects the
+  live zero-cost stack; **unset defaults to LIVE** — the stack needs no keys,
+  so missing paid-API credentials never imply mock, and a value that means
+  neither side fails the boot loudly instead of guessing. The UI stamps
+  every mock number `mock feed`.
 - **the account layer needs no X credentials at all.** mail runs on
   `PAPER_EMAIL_PROVIDER` (default `mock`: the magic link prints to the
   console and rides the API as `link` for dev clicks). `smtp` is the real
@@ -49,10 +53,10 @@ the board server serves the site AND the api from one port — run this:
   `PAPER_SMTP_USER`, `PAPER_SMTP_PASSWORD`, `PAPER_EMAIL_FROM`) — it fails
   loudly at boot rather than pretending. links are built absolute from
   `PAPER_PUBLIC_BASE_URL`.
-- **live post-verification runs on the syndication provider** (no user
-  OAuth): an X app bearer (`X_API_BEARER`) only strengthens the follow-gate;
-  without it the gate defers to the scan. The Connect-X-era routes still
-  read `X_CLIENT_ID` / `X_CLIENT_SECRET` / `X_REDIRECT_URI`, and
+- **live post-verification runs on the zero-cost stack** (FxEmbed first,
+  official oEmbed behind — the record below): no user OAuth, no paid X API,
+  and no app bearer needed. The Connect-X-era routes still read
+  `X_CLIENT_ID` / `X_CLIENT_SECRET` / `X_REDIRECT_URI`, and
   `PAPER_ADMIN_TOKEN` still guards the refresh route.
 - `PAPER_PORT`, `PAPER_DB_PATH`, `PAPER_MOCK`, `PAPER_SCHEDULER` tune it;
   `PAPER_SECURE_COOKIES=1` adds `Secure` to the session cookie for prod.
