@@ -90,8 +90,16 @@ class Handler(BaseHTTPRequestHandler):
                 k, v = part.split("=", 1)
                 cookies[k.strip()] = v.strip()
 
-        out = self.server.router.dispatch(method, parsed.path, query, headers,
-                                           cookies, body)
+        try:
+            out = self.server.router.dispatch(method, parsed.path, query, headers,
+                                              cookies, body)
+        except Exception as e:                            # never a hung socket
+            print(f"[http-error] {method} {parsed.path}: {e!r}")
+            try:
+                self.server.router.s.db.conn.rollback()   # drop the half-cut
+            except Exception:
+                pass
+            out = (500, {"error": "server_error"}, None)
         status, payload, extra = out if len(out) == 3 else (out[0], out[1], None)
         router = self.server.router
         self.send_response(status)

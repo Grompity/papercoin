@@ -215,6 +215,23 @@ class Router:
                         return fail(400, "bad_status")
                     return ok(status_filter=status, mode=mode,
                               rows=s.admin_queue(cid, status))
+                if path.startswith("/api/admin/payout"):
+                    if not self._allow(f"payout:{account['id']}", rl["apiPerMinute"], 60):
+                        return fail(429, "rate_limited")
+                    want = (query.get("batch") or "").strip()
+                    if want != "":
+                        try:
+                            bid = int(want)
+                        except (TypeError, ValueError):
+                            return fail(400, "bad_batch")
+                        view = s.payout_view(bid)
+                    else:
+                        if cid is None:
+                            return fail(404, "no_active_competition")
+                        view = s.payout_latest(cid)
+                    if not view.get("ok"):
+                        return fail(404, view.get("reason", "payout_batch_not_found"))
+                    return ok(**view)
                 return fail(404, "unknown_api_route")
             return fail(404, "unknown_api_route")
 
@@ -234,6 +251,51 @@ class Router:
                 if account.get("status") != "active":
                     return fail(403, "account_closed")
                 return None
+
+            if path.startswith("/api/admin/payout/"):
+                # the friday hand: a human moves the batch, the server decides
+                # whether the move is legal — states, ids, and rights are all
+                # checked behind this door, never in the browser.
+                gate = acct_gate()
+                if gate is not None:
+                    return gate
+                email = (account.get("email") or "").lower()
+                if not settings.admset or email not in settings.admset:
+                    return fail(403, "admin_only")
+                if not self._allow(f"payout:{account['id']}", 60, 60):
+                    return fail(429, "payout_rate_limited")
+                action = path[len("/api/admin/payout/"):]
+                b = body or {}
+                try:
+                    bid = int(b.get("batch") or 0)   # prepare needs none; 0 = no such batch
+                except (TypeError, ValueError):
+                    return fail(400, "bad_batch")
+                faults = b.get("faults") or []
+                if action == "prepare":
+                    extra = b.get("poolBase")
+                    out = s.payout_prepare(cid, email,
+                                            int(extra) if extra is not None else None)
+                elif action == "freeze":
+                    out = s.payout_freeze(bid, email)
+                elif action == "approve":
+                    out = s.payout_approve(bid, email, b.get("confirmTotal"))
+                elif action == "simulate":
+                    out = s.payout_simulate(bid, email, faults)
+                elif action == "retry":
+                    out = s.payout_retry(bid, email, faults)
+                elif action == "reconcile":
+                    out = s.payout_reconcile(bid, email)
+                elif action == "cancel":
+                    out = s.payout_cancel(bid, email, str(b.get("reason") or ""))
+                else:
+                    return fail(400, "bad_payout_action")
+                if not out.get("ok"):
+                    reason = out.get("reason", "payout_failed")
+                    codes = {"payout_batch_not_found": 404,
+                             "payout_already_executed": 409,
+                             "payout_open_batch": 409}
+                    return fail(codes.get(reason, 400), reason)
+                return ok(**out)
 
             if path == "/api/admin/verify":
                 # the account-era manual verification. the gate is the whole

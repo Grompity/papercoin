@@ -40,7 +40,8 @@ class Service:
         self.metrics_cfg = dict(cfg.get("metrics", {}))
         self.budget_cfg = dict(cfg.get("budget", {}))
         self.costs = dict(cfg.get("apiCosts", {}))
-        self.acfg = dict(cfg.get("account", {}))     # the account layer's timing rules
+        self.acfg = dict(cfg.get("account", {}))
+        self.payout = dict(cfg.get("payout", {}))     # friday rhythm, phase 1 (test clothes)
         self.mail = make_mailer(settings)            # provider boundary, mock by default
         self._inflight = set()
         self._scan_lock = threading.Lock()
@@ -1212,9 +1213,384 @@ class Service:
             return "ended"
         return "live"
 
+    # ------------------------------------------------------ payouts (phase 1)
+    # the friday rhythm in test clothes: cut a batch from the live board,
+    # freeze it, review, approve by a human hand, and "pay" it in simulation.
+    # no keys, no network, no money — only the ledger learns anything.
+    # statuses in use: draft -> ready -> approved -> simulated | partial;
+    # cancelled closes an unpaid batch. (confirmed is reserved for the real
+    # on-chain future; it is never stamped on a simulation.)
+
+    WALLET_RE = r"^[1-9A-HJ-NP-Za-z]{32,44}$"
+    payout_open = ("draft", "ready", "approved", "partial")
+
+    def _pay_event(self, batch_id, actor, kind, detail=""):
+        self.db.conn.execute(
+            "INSERT INTO payout_events(batch_id, actor, kind, detail, at)"
+            " VALUES(?,?,?,?,?)", (batch_id, actor, kind, detail, now()))
+
+    def _pay_rank(self, competition_id):
+        """the board's own law, copied — points desc, account asc; tied
+        points share one rank (1,2,2,4), exactly as the board promises."""
+        grouped = self.db.conn.execute(
+            "SELECT s.account_id AS account_id,"
+            " COALESCE(a.username, a.email) AS handle,"
+            " SUM(s.points) AS points"
+            " FROM submissions s JOIN accounts a ON a.id = s.account_id"
+            " WHERE s.competition_id=? GROUP BY s.account_id"
+            " ORDER BY points DESC, s.account_id", (competition_id,)).fetchall()
+        ranked, rank, prev = [], 0, None
+        for i, r in enumerate(grouped):
+            if r["points"] != prev:
+                rank = i + 1
+                prev = r["points"]
+            ranked.append(dict(account_id=r["account_id"], handle=r["handle"],
+                               points=float(r["points"]), rank=rank))
+        return ranked
+
+    def _pay_alloc(self, entries, pool, formula):
+        """integer base units, floor + largest-remainder: the parts sum to
+        the pool exactly (no float, no evaporation, no duplication). returns
+        (amounts or None, warnings)."""
+        n = len(entries)
+        if n == 0:
+            return [], ["no eligible recipients"]
+        weights = []
+        for e in entries:
+            if formula == "rank_ladder":
+                weights.append(max(1, n - e["rank"] + 1))
+            elif formula == "equal_split":
+                weights.append(1)
+            elif formula == "points_proportional":
+                pts_w = int(round(e["points"] * 1_000_000))
+                weights.append(max(1, pts_w))
+            else:
+                return None, ["unknown payout formula"]
+        total_w = sum(weights) or 1
+        quot, rems, allocated = [], [], 0
+        for w in weights:
+            q = int((pool * w) / total_w)
+            r = pool * w - q * total_w
+            quot.append(q)
+            rems.append(r)
+            allocated += q
+        leftover = pool - allocated
+        order = sorted(range(n),
+                       key=lambda i: (-rems[i], entries[i]["rank"], entries[i]["account_id"]))
+        for k in range(min(leftover, n)):
+            quot[order[k]] += 1
+        return quot, []
+
+    def payout_prepare(self, competition_id, admin_email, pool_base=None):
+        """cut a fresh draft: live board -> frozen proposal rows, explained
+        exclusions, explicit period/cutoff/pool/rule-version."""
+        cfg = self.payout
+        pool = cfg.get("poolBase", 0) if pool_base is None else pool_base
+        if isinstance(pool, bool) or not isinstance(pool, int) or pool < 0:
+            return dict(ok=False, reason="bad_pool")
+        open_b = self.db.conn.execute(
+            "SELECT id FROM payout_batch WHERE competition_id=?"
+            " AND status IN ('draft','ready','approved','partial')"
+            " ORDER BY id DESC LIMIT 1", (competition_id,)).fetchone()
+        if open_b is not None:
+            return dict(ok=False, reason="payout_open_batch", batch_id=open_b["id"])
+        t = now()
+        cutoff = t
+        allow_dup = bool(cfg.get("allowDuplicateWallet", False))
+        mint = str(cfg.get("tokenMint", ""))
+        ranked = self._pay_rank(competition_id)
+        warnings, excluded, kept = [], [], []
+        seen = {}
+        for r in ranked:
+            acc = self.db.conn.execute(
+                "SELECT wallet, wallet_effective_at, status FROM accounts WHERE id=?",
+                (r["account_id"],)).fetchone()
+            if acc is None:
+                excluded.append(dict(account_id=r["account_id"], reason="account_missing"))
+                continue
+            if (acc["status"] or "") != "active":
+                excluded.append(dict(account_id=r["account_id"], reason="account_closed"))
+                continue
+            if r["points"] <= 0:
+                excluded.append(dict(account_id=r["account_id"], reason="zero_points"))
+                continue
+            w = acc["wallet"]
+            if w is None or w == "":
+                excluded.append(dict(account_id=r["account_id"], reason="missing_wallet"))
+                continue
+            if not self._pay_wallet_ok(w):
+                excluded.append(dict(account_id=r["account_id"], reason="invalid_wallet"))
+                continue
+            eff = acc["wallet_effective_at"]
+            if eff is not None and eff > cutoff:
+                excluded.append(dict(account_id=r["account_id"], reason="wallet_warming"))
+                continue
+            if not allow_dup and w in seen:
+                excluded.append(dict(account_id=r["account_id"],
+                                     reason="duplicate_wallet", first_account=seen[w]))
+                continue
+            seen[w] = r["account_id"]
+            kept.append(dict(account_id=r["account_id"], handle=r["handle"],
+                             rank=r["rank"], points=r["points"], wallet=w))
+        if pool == 0:
+            warnings.append("pool is zero (preview only)")
+        amounts, warn2 = self._pay_alloc(kept, pool, cfg.get("formula", "rank_ladder"))
+        if amounts is None:
+            return dict(ok=False, reason=warn2[0])
+        warnings += warn2
+        total = sum(amounts)
+        if total > pool:
+            return dict(ok=False, reason="payout_over_allocated")
+        cur = self.db.conn.execute(
+            "INSERT INTO payout_batch(competition_id, label, period, cutoff_at,"
+            " generated_at, pool_base, decimals, token_mint, formula, rule_version,"
+            " status, total_base, participants, excluded_json, warnings_json)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (competition_id, f"{self._pay_slug(competition_id)}-batch-{int(t)}",
+             str(cfg.get("periodLabel", "weekly-friday")), cutoff, t, pool,
+             int(cfg.get("decimals", 9)), mint, str(cfg.get("formula", "rank_ladder")),
+             str(cfg.get("ruleVersion", "pp-v0")), "draft", total, len(kept),
+             json.dumps(excluded), json.dumps(warnings)))
+        bid = cur.lastrowid
+        for e, amt in zip(kept, amounts):
+            self.db.conn.execute(
+                "INSERT INTO payout_entry(batch_id, account_id, rank, points, handle,"
+                " wallet, amount_base, share_pct, status) VALUES(?,?,?,?,?,?,?,?,?)",
+                (bid, e["account_id"], e["rank"], e["points"], e["handle"], e["wallet"],
+                 amt, (pool and (100.0 * amt / pool)) or 0.0, "proposed"))
+        self._pay_event(bid, admin_email, "prepare",
+                        f"pool={pool} entries={len(kept)} formula={cfg.get('formula')}")
+        self.db.conn.commit()
+        return self.payout_view(bid)
+
+    def _pay_view_rows(self, batch_id):
+        return [dict(id=r["id"], account_id=r["account_id"], rank=r["rank"],
+                     handle=r["handle"], points=r["points"], wallet=r["wallet"],
+                     amount_base=r["amount_base"], share_pct=r["share_pct"],
+                     status=r["status"], attempts=r["attempts"], tx_sig=r["tx_sig"],
+                     detail=r["detail"])
+                for r in self.db.conn.execute(
+                    "SELECT * FROM payout_entry WHERE batch_id=? ORDER BY rank, account_id",
+                    (batch_id,))]
+
+    def payout_view(self, batch_id):
+        b = self.db.conn.execute("SELECT * FROM payout_batch WHERE id=?",
+                                 (batch_id,)).fetchone()
+        if b is None:
+            return dict(ok=False, reason="payout_batch_not_found")
+        entries = self._pay_view_rows(batch_id)
+        events = [dict(kind=r["kind"], actor=r["actor"], detail=r["detail"], at=r["at"])
+                  for r in self.db.conn.execute(
+                      "SELECT kind, actor, detail, at FROM payout_events"
+                      " WHERE batch_id=? ORDER BY id DESC LIMIT 20", (batch_id,))]
+        return dict(ok=True, batch=dict(id=b["id"], label=b["label"], period=b["period"],
+                                        competition_id=b["competition_id"], cutoff_at=b["cutoff_at"],
+                                        generated_at=b["generated_at"], pool_base=b["pool_base"],
+                                        decimals=b["decimals"], token_mint=b["token_mint"],
+                                        formula=b["formula"], rule_version=b["rule_version"],
+                                        status=b["status"], total_base=b["total_base"],
+                                        participants=b["participants"],
+                                        excluded=json.loads(b["excluded_json"]),
+                                        warnings=json.loads(b["warnings_json"]),
+                                        frozen_at=b["frozen_at"], approved_by=b["approved_by"],
+                                        approved_at=b["approved_at"], executed_at=b["executed_at"],
+                                        closed_reason=b["closed_reason"]),
+                    entries=entries, events=events)
+
+    def payout_latest(self, competition_id):
+        b = self.db.conn.execute(
+            "SELECT id FROM payout_batch WHERE competition_id=? ORDER BY id DESC LIMIT 1",
+            (competition_id,)).fetchone()
+        history = [dict(id=r["id"], label=r["label"], status=r["status"],
+                        total_base=r["total_base"], generated_at=r["generated_at"])
+                   for r in self.db.conn.execute(
+                       "SELECT id, label, status, total_base, generated_at FROM payout_batch"
+                       " WHERE competition_id=? ORDER BY id DESC LIMIT 8", (competition_id,))]
+        if b is None:
+            return dict(ok=True, batch=None, entries=[], events=[], history=history)
+        out = self.payout_view(b["id"])
+        out["history"] = history
+        return out
+
+    def payout_freeze(self, batch_id, admin_email):
+        cur = self.db.conn.execute(
+            "UPDATE payout_batch SET status='ready', frozen_at=? WHERE id=?"
+            " AND status='draft'", (now(), batch_id))
+        if cur.rowcount == 0:
+            return self._pay_bad(batch_id)
+        self._pay_event(batch_id, admin_email, "freeze")
+        self.db.conn.commit()
+        return self.payout_view(batch_id)
+
+    def payout_approve(self, batch_id, admin_email, confirm_total=None):
+        b = self.db.conn.execute("SELECT * FROM payout_batch WHERE id=?",
+                                 (batch_id,)).fetchone()
+        if b is None:
+            return dict(ok=False, reason="payout_batch_not_found")
+        if b["status"] != "ready":
+            return dict(ok=False, reason="payout_bad_state")
+        total = sum(r["amount_base"] for r in self._pay_view_rows(batch_id))
+        if total != b["total_base"]:
+            return dict(ok=False, reason="payout_entries_moved")
+        if confirm_total is not None and int(confirm_total) != total:
+            return dict(ok=False, reason="payout_total_mismatch", seen=total)
+        self.db.conn.execute(
+            "UPDATE payout_batch SET status='approved', approved_by=?, approved_at=?"
+            " WHERE id=? AND status='ready'", (admin_email, now(), batch_id))
+        # the hand on the batch moves the rows with it: entries graduate
+        # from 'proposed' to 'approved', so the executor only ever sees
+        # rows a human has actually blessed.
+        self.db.conn.execute(
+            "UPDATE payout_entry SET status='approved' WHERE batch_id=?"
+            " AND status='proposed'", (batch_id,))
+        self._pay_event(batch_id, admin_email, "approve", f"total={total}")
+        self.db.conn.commit()
+        return self.payout_view(batch_id)
+
+    def payout_simulate(self, batch_id, admin_email, faults=None):
+        """the test-mode execution. a fault list is the test harness's way to
+        watch recovery; a simulation is never a claim of on-chain truth."""
+        b = self.db.conn.execute("SELECT status FROM payout_batch WHERE id=?",
+                                 (batch_id,)).fetchone()
+        if b is None:
+            return dict(ok=False, reason="payout_batch_not_found")
+        if b["status"] in ("simulated", "partial", "cancelled"):
+            return dict(ok=False, reason="payout_already_executed")
+        if b["status"] != "approved":
+            return dict(ok=False, reason="payout_bad_state")
+        cur = self.db.conn.execute(
+            "UPDATE payout_batch SET status='simulated', executed_at=? WHERE id=?"
+            " AND status='approved'", (now(), batch_id))
+        if cur.rowcount == 0:
+            return dict(ok=False, reason="payout_already_executed")
+        fl = list(faults or ["__none__"])
+        ph = ",".join("?" for _ in fl)
+        self.db.conn.execute(
+            f"UPDATE payout_entry SET status='failed', attempts=attempts+1,"
+            f" detail='sim fault' WHERE batch_id=? AND wallet IN ({ph})",
+            tuple([batch_id] + fl))
+        self.db.conn.execute(
+            "UPDATE payout_entry SET status='simulated', attempts=attempts+1,"
+            " tx_sig='sim-' || id WHERE batch_id=? AND status='approved'", (batch_id,))
+        left = self.db.conn.execute(
+            "SELECT COUNT(*) AS n FROM payout_entry WHERE batch_id=?"
+            " AND status='failed'", (batch_id,)).fetchone()["n"]
+        if left:
+            self.db.conn.execute("UPDATE payout_batch SET status='partial' WHERE id=?",
+                                 (batch_id,))
+        self._pay_event(batch_id, admin_email, "simulate",
+                        f"mode=TEST MODE; failed={left}")
+        self.db.conn.commit()
+        return self.payout_view(batch_id)
+
+    def payout_retry(self, batch_id, admin_email, faults=None):
+        """safe by construction: only entries verified as failed are touched."""
+        b = self.db.conn.execute("SELECT status FROM payout_batch WHERE id=?",
+                                 (batch_id,)).fetchone()
+        if b is None:
+            return dict(ok=False, reason="payout_batch_not_found")
+        if b["status"] != "partial":
+            return dict(ok=False, reason="payout_bad_state")
+        bad = list(faults or [])
+        fl = bad or ["__none__"]
+        ph = ",".join("?" for _ in fl)
+        self.db.conn.execute(
+            f"UPDATE payout_entry SET status='failed', attempts=attempts+1,"
+            f" detail='sim fault' WHERE batch_id=? AND status='failed' AND wallet IN ({ph})",
+            tuple([batch_id] + fl))
+        self.db.conn.execute(
+            f"UPDATE payout_entry SET status='simulated', attempts=attempts+1,"
+            f" tx_sig='sim-' || id WHERE batch_id=? AND status='failed' AND wallet NOT IN ({ph})",
+            tuple([batch_id] + fl))
+        left = self.db.conn.execute(
+            "SELECT COUNT(*) AS n FROM payout_entry WHERE batch_id=?"
+            " AND status='failed'", (batch_id,)).fetchone()["n"]
+        if not left:
+            self.db.conn.execute("UPDATE payout_batch SET status='simulated' WHERE id=?",
+                                 (batch_id,))
+        self._pay_event(batch_id, admin_email, "retry", f"still failed={left}")
+        self.db.conn.commit()
+        return self.payout_view(batch_id)
+
+    def payout_reconcile(self, batch_id, admin_email):
+        b = self.db.conn.execute("SELECT id FROM payout_batch WHERE id=?",
+                                 (batch_id,)).fetchone()
+        if b is None:
+            return dict(ok=False, reason="payout_batch_not_found")
+        rows = self._pay_view_rows(batch_id)
+        total = sum(r["amount_base"] for r in rows)
+        sim = sum(1 for r in rows if r["status"] == "simulated")
+        failed = sum(1 for r in rows if r["status"] == "failed")
+        self.db.conn.execute("UPDATE payout_batch SET total_base=? WHERE id=?",
+                             (total, batch_id))
+        self._pay_event(batch_id, admin_email, "reconcile",
+                        f"total={total} simulated={sim} failed={failed}")
+        self.db.conn.commit()
+        return self.payout_view(batch_id)
+
+    def payout_cancel(self, batch_id, admin_email, reason=""):
+        cur = self.db.conn.execute(
+            "UPDATE payout_batch SET status='cancelled', closed_reason=? WHERE id=?"
+            " AND status IN ('draft','ready','approved')", (reason, batch_id))
+        if cur.rowcount == 0:
+            got = self.db.conn.execute("SELECT status FROM payout_batch WHERE id=?",
+                                       (batch_id,)).fetchone()
+            if got is None:
+                return dict(ok=False, reason="payout_batch_not_found")
+            if got["status"] in ("simulated", "partial"):
+                return dict(ok=False, reason="payout_already_executed")
+            return dict(ok=False, reason="payout_bad_state")
+        self._pay_event(batch_id, admin_email, "cancel", reason)
+        self.db.conn.commit()
+        return self.payout_view(batch_id)
+
+    def _pay_bad(self, batch_id):
+        got = self.db.conn.execute("SELECT status FROM payout_batch WHERE id=?",
+                                   (batch_id,)).fetchone()
+        if got is None:
+            return dict(ok=False, reason="payout_batch_not_found")
+        return dict(ok=False, reason="payout_bad_state", status=got["status"])
+
+    def _pay_wallet_ok(self, wallet):
+        w = str(wallet)
+        if len(w) < 32 or len(w) > 44:
+            return False
+        for ch in w:
+            if ch not in "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz":
+                return False
+        return True
+
+    def _pay_slug(self, competition_id):
+        row = self.db.conn.execute("SELECT slug FROM competitions WHERE id=?",
+                                   (competition_id,)).fetchone()
+        if row is None:
+            return "c" + str(competition_id)
+        return row["slug"]
+
+
+def _pay_guarded(method):
+    """phase-1 hardening, one rule: a payout step that raises mid-flight
+    rolls its half-cut back, so no later commit can smuggle a torn batch
+    into the ledger. (the raise itself still travels — never swallow it.)"""
+    def guarded(self, *args, **kw):
+        try:
+            return method(self, *args, **kw)
+        except Exception:
+            self.db.conn.rollback()
+            raise
+    return guarded
+
+
+Service.payout_prepare = _pay_guarded(Service.payout_prepare)
+Service.payout_freeze = _pay_guarded(Service.payout_freeze)
+Service.payout_approve = _pay_guarded(Service.payout_approve)
+Service.payout_simulate = _pay_guarded(Service.payout_simulate)
+Service.payout_retry = _pay_guarded(Service.payout_retry)
+Service.payout_reconcile = _pay_guarded(Service.payout_reconcile)
+Service.payout_cancel = _pay_guarded(Service.payout_cancel)
+
 
 def _iso(val):
-    """epoch seconds <-> ISO strings are both accepted in config; normalize to epoch."""
     if isinstance(val, (int, float)):
         return float(val)
     try:

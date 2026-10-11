@@ -1509,6 +1509,238 @@ def main():
           and resD.get("owner") == "self" and abs((resD.get("points") or 0) - 22.0) < .001,
           str(resD)[:90])
 
+    # ====== payouts phase 1: the friday rhythm, in test clothes =============
+    # one board, nine accounts, nine fates: A earns big and gets paid; B has
+    # no wallet; C earns a tie and shares it fairly; D's wallet is a lie;
+    # E ties A but shares his wallet; F scored nothing; G's wallet is still
+    # warming; H closed the account; I ties C. then: freeze, a board that
+    # moves, a hand on the total, a faulted run, a careful retry.
+    stW, dbW, sW, cidW = make_env2("PAY", BlindX())
+    rW = http_app.Router(sW, stW, dbW, BlindX())
+    stW.admset = set(["root@paper.io"])
+    MINTW = "E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk"
+    idsW = {}
+    for nm in ("A", "B", "C", "D", "E", "F", "G", "H", "I"):
+        accW = sW.create_or_touch_account(nm.lower() + "@pay.io")[0]
+        idsW[nm] = accW["id"]
+        sW.onboard_account(sW.consume_magic_link(sW.issue_magic_link(accW["id"])[0])[0],
+                           "pay" + nm.lower(), MINTW[:-1] + nm.lower())
+    def post_pay(nm, url, likes):
+        sig = sW.consume_magic_link(sW.issue_magic_link(idsW[nm])[0])[0]
+        sW.submit_post(sig, url, cidW)
+        sid = dbW.conn.execute("SELECT id FROM submissions WHERE account_id=?"
+                               " ORDER BY id DESC LIMIT 1",
+                               (idsW[nm],)).fetchone()["id"]
+        if likes is not None:
+            sW.verify_like(sid, "root@paper.io", likes)
+    for nm, lk in (("A", 300), ("B", 100), ("C", 50), ("D", None), ("E", 300),
+                   ("F", 20), ("G", 30), ("H", 20), ("I", 50)):
+        post_pay(nm, "https://x.com/" + nm.lower() + "/status/900" + nm.lower(), lk)
+    dbW.conn.execute("UPDATE accounts SET wallet=NULL WHERE id=?", (idsW["B"],))
+    dbW.conn.execute("UPDATE accounts SET wallet=? WHERE id=?", ("0" * 40, idsW["D"]))
+    dbW.conn.execute("UPDATE accounts SET wallet=? WHERE id=?", (MINTW[:-1] + "a", idsW["E"]))
+    dbW.conn.execute("UPDATE accounts SET wallet_effective_at=? WHERE id=?",
+                     (time.time() + 86400, idsW["G"]))
+    dbW.conn.execute("UPDATE accounts SET status='closed' WHERE id=?", (idsW["H"],))
+    dbW.conn.execute("UPDATE submissions SET points=0, eligible=0 WHERE account_id=?",
+                     (idsW["F"],))
+    dbW.conn.commit()
+    vw1 = sW.payout_prepare(cidW, "root@paper.io", 21)
+    check("pay: a prepared batch is a draft; the pool splits among the eligible and says its total",
+          vw1.get("ok") is True and vw1["batch"]["status"] == "draft"
+          and vw1["batch"]["participants"] == 3 and vw1["batch"]["total_base"] == 21,
+          str(vw1.get("reason") or vw1["batch"]["status"]))
+    exclSet = sorted({e["reason"] for e in vw1["batch"]["excluded"]})
+    check("pay: every exclusion speaks for itself — six fates, six reasons, no silent drops",
+          exclSet == ["account_closed", "duplicate_wallet", "invalid_wallet",
+                      "missing_wallet", "wallet_warming", "zero_points"], str(exclSet))
+    amtsW = {e["handle"]: e["amount_base"] for e in vw1["entries"]}
+    check("pay: rank ladder, floor plus largest remainder — integers, exact pool, tied peers equal",
+          amtsW == {"paya": 13, "payc": 4, "payi": 4}, str(amtsW))
+    dupP = sW.payout_prepare(cidW, "root@paper.io", 21)
+    check("pay: one open batch guards the ledger from double cuts",
+          dupP.get("ok") is not True and dupP.get("reason") == "payout_open_batch",
+          str(dupP.get("reason")))
+    bidW = vw1["batch"]["id"]
+    fro = sW.payout_freeze(bidW, "root@paper.io")
+    check("pay: freezing is the human gate one — draft becomes ready, frozen_at is stamped",
+          fro["batch"]["status"] == "ready" and fro["batch"]["frozen_at"] is not None,
+          str(fro.get("reason") or fro["batch"]["status"]))
+    post_pay("A", "https://x.com/a2/status/9011", 100)
+    boardA = [r for r in sW.leaderboard(cidW)["rows"] if r["user"]["id"] == idsW["A"]]
+    entA = [e for e in sW.payout_view(bidW)["entries"] if e["handle"] == "paya"][0]
+    check("pay: the live board may move but a frozen batch does not (270 live, 160 frozen)",
+          bool(boardA) and boardA[0]["points"] == 270.0
+          and entA["points"] == 160.0 and entA["amount_base"] == 13, str(entA)[:110])
+    badApr = sW.payout_approve(bidW, "root@paper.io", 999)
+    check("pay: approval that does not confirm the very total is turned away",
+          badApr.get("reason") == "payout_total_mismatch", str(badApr.get("reason")))
+    apr = sW.payout_approve(bidW, "root@paper.io", 21)
+    check("pay: the human hand approves a ready batch and is recorded by name",
+          apr["batch"]["status"] == "approved" and apr["batch"]["approved_by"] == "root@paper.io",
+          str(apr.get("reason") or apr["batch"]["status"]))
+    sim = sW.payout_simulate(bidW, "root@paper.io", [MINTW[:-1] + "c"])
+    simEnt = {e["handle"]: e for e in sim["entries"]}
+    check("pay: simulation is TEST MODE — one fault makes a partial, and the audit says TEST MODE",
+          sim["batch"]["status"] == "partial" and simEnt["payc"]["status"] == "failed"
+          and simEnt["paya"]["status"] == "simulated" and simEnt["payi"]["status"] == "simulated"
+          and any(ev["kind"] == "simulate" and "TEST MODE" in ev["detail"] for ev in sim["events"]),
+          str([(e["handle"], e["status"]) for e in sim["entries"]])
+          + " ev:" + str(sim["events"][:2])[:120])
+    ret = sW.payout_retry(bidW, "root@paper.io")
+    retEnt = {e["handle"]: e for e in ret["entries"]}
+    check("pay: retry touches only the verified-failed; paid peers keep a single attempt",
+          ret["batch"]["status"] == "simulated" and retEnt["payc"]["status"] == "simulated"
+          and retEnt["payc"]["attempts"] == 2 and retEnt["paya"]["attempts"] == 1
+          and str(retEnt["paya"]["tx_sig"] or "").startswith("sim-"),
+          str([(e["handle"], e["status"], e["attempts"]) for e in ret["entries"]])[:150])
+    twice = sW.payout_simulate(bidW, "root@paper.io")
+    retri = sW.payout_retry(bidW, "root@paper.io")
+    canc1 = sW.payout_cancel(bidW, "root@paper.io")
+    check("pay: a settled batch refuses re-execution, pointless retries, and cancelling after pay",
+          twice.get("reason") == "payout_already_executed"
+          and retri.get("reason") == "payout_bad_state"
+          and canc1.get("reason") == "payout_already_executed", str(twice.get("reason")))
+    vw2 = sW.payout_prepare(cidW, "root@paper.io", 9)
+    cx = sW.payout_cancel(vw2["batch"]["id"], "root@paper.io", "no friday feeling")
+    latW = sW.payout_latest(cidW)
+    check("pay: history keeps the settled batch, a new one may be cut, cancel leaves a named close",
+          len(latW.get("history", [])) == 2 and latW["batch"]["status"] == "cancelled"
+          and latW["batch"]["closed_reason"] == "no friday feeling", str(latW.get("history"))[:110])
+    sW.payout["formula"] = "nope"
+    uForm = sW.payout_prepare(cidW, "root@paper.io", 21)
+    check("pay: an unknown formula is refused out loud, never quietly guessed",
+          uForm.get("ok") is not True and uForm.get("reason") == "unknown payout formula",
+          str(uForm.get("reason")))
+    sW.payout["formula"] = "equal_split"
+    eq = sW.payout_prepare(cidW, "root@paper.io", 21)
+    eqAmt = sorted(e["amount_base"] for e in eq["entries"])
+    sW.payout_cancel(eq["batch"]["id"], "root@paper.io", "lane test")
+    check("pay: the second formula (equal split) also sums to the pool exactly",
+          eqAmt == [7, 7, 7], str(eqAmt))
+    sW.payout["formula"] = "rank_ladder"
+    ti = sW.payout_prepare(cidW, "root@paper.io", 4)
+    tiAmt = [e["amount_base"] for e in ti["entries"]]
+    sW.payout_cancel(ti["batch"]["id"], "root@paper.io", "lane test")
+    check("pay: a tiny pool divides exactly too — floor, remainder, integers only",
+          sum(tiAmt) == 4 and tiAmt == [2, 1, 1], str(tiAmt))
+    sW.payout["allowDuplicateWallet"] = True
+    dp = sW.payout_prepare(cidW, "root@paper.io", 21)
+    sW.payout["allowDuplicateWallet"] = False
+    check("pay: the duplicate-wallet wall is a policy, and the policy has a switch",
+          dp.get("ok") is True and dp["batch"]["participants"] == 4,
+          str(dp["batch"]["participants"]))
+    sW.payout_cancel(dp["batch"]["id"], "root@paper.io", "lane test")
+    dbW.conn.execute("INSERT INTO competitions(slug,name,starts_at,ends_at,status)"
+                     " VALUES('pay2','Pay Two','2026-01-01','2027-01-01','done')")
+    dbW.conn.commit()
+    cid2 = dbW.conn.execute("SELECT id FROM competitions WHERE slug='pay2'").fetchone()["id"]
+    zr = sW.payout_prepare(cid2, "root@paper.io", 9)
+    check("pay: an empty board prepares into a draft that says so out loud",
+          zr.get("ok") is True and zr["batch"]["participants"] == 0
+          and "no eligible recipients" in zr["batch"]["warnings"], str(zr.get("batch"))[:110])
+    def seat_pay(email):
+        accX = sW.create_or_touch_account(email)[0]
+        out = rW.dispatch("GET", "/api/auth/magic",
+                          {"token": sW.issue_magic_link(accX["id"])[0]}, {}, {}, None)
+        return {"PBSD": out[2]["Set-Cookie"].split("PBSD=")[1].split(";")[0]}
+    def gop(method, path, query=None, headers=None, cookies=None, body=None):
+        out = rW.dispatch(method, path, query or {}, headers or {}, cookies or {}, body)
+        return out[0], out[1]
+    JSONW = {"content-type": "application/json"}
+    ckRoot, ckOut = seat_pay("root@paper.io"), seat_pay("guest@pay.io")
+    st1, w1 = gop("GET", "/api/admin/payout", cookies=ckRoot)
+    check("pay http: the admin sees the treasury (and only the admin)",
+          st1 == 200 and w1.get("ok") is True and "batch" in w1, str(w1)[:80])
+    st2, _e = gop("GET", "/api/admin/payout", cookies={})
+    check("pay http: no cookie, no treasury", st2 == 401, str(st2))
+    st3, _e = gop("GET", "/api/admin/payout", cookies=ckOut)
+    check("pay http: a bystander gets 403, never a polite 200", st3 == 403, str(st3))
+    st4, _e = gop("POST", "/api/admin/payout/freeze",
+                  headers={"content-type": "text/plain"}, cookies=ckRoot, body={"batch": 1})
+    check("pay http: the JSON door stands before any state moves", st4 == 415, str(st4))
+    st5, w5 = gop("POST", "/api/admin/payout/freeze", headers=JSONW,
+                  cookies=ckRoot, body={"batch": 4242})
+    check("pay http: an unknown batch is a server-side 404",
+          st5 == 404 and w5.get("error") == "payout_batch_not_found", str(w5)[:80])
+    st6, _e = gop("POST", "/api/admin/payout/nothing", headers=JSONW,
+                  cookies=ckRoot, body={"batch": 1})
+    check("pay http: an unknown verb is 400, not a shrug", st6 == 400, str(st6))
+    st7, w7 = gop("POST", "/api/admin/payout/prepare", headers=JSONW,
+                  cookies= ckRoot, body={})
+    okPrepare = (st7 == 200 and w7.get("ok") is True and (w7.get("batch") or {}).get("id") is not None)
+    st8, _e = gop("POST", "/api/admin/payout/cancel", headers=JSONW, cookies=ckRoot,
+                  body={"batch": (w7.get("batch") or {}).get("id"), "reason": "lane test"})
+    check("pay http: prepare drives through HTTP with no batch in hand, and cancel closes it again",
+          okPrepare and st8 == 200, f"{st7}/{st8}")
+    st9, w9 = gop("POST", "/api/admin/payout/freeze", headers=JSONW,
+                  cookies=ckRoot, body={"batch": "not-a-number"})
+    check("pay http: a batch id that is not a number is a 400, never a guess",
+          st9 == 400 and w9.get("error") == "bad_batch", str(w9)[:70])
+    nSub0 = dbW.conn.execute("SELECT COUNT(*) AS n FROM submissions").fetchone()["n"]
+    nAcc0 = dbW.conn.execute("SELECT COUNT(*) AS n FROM accounts").fetchone()["n"]
+    nEven0 = dbW.conn.execute("SELECT COUNT(*) AS n FROM admin_events").fetchone()["n"]
+    nBatch0 = dbW.conn.execute("SELECT COUNT(*) AS n FROM payout_batch").fetchone()["n"]
+    dbW2 = dbmod.DB("/tmp/paperboard-self-PAY.sqlite3")
+    nSub1 = dbW2.conn.execute("SELECT COUNT(*) AS n FROM submissions").fetchone()["n"]
+    nAcc1 = dbW2.conn.execute("SELECT COUNT(*) AS n FROM accounts").fetchone()["n"]
+    nPay1 = dbW2.conn.execute("SELECT COUNT(*) AS n FROM payout_batch").fetchone()["n"]
+    check("pay: reopening the same file keeps the old world and the new ledger side by side",
+          nSub1 == nSub0 and nAcc1 == nAcc0 and nPay1 == nBatch0 and nEven0 == nEven0,
+          f"{nSub1}/{nAcc1}/{nPay1}")
+    check("pay: the ledger keeps its receipts — every batch a full event line, append only",
+          dbW2.conn.execute("SELECT COUNT(*) AS n FROM payout_events").fetchone()["n"] >= nPay1,
+          str(dbW.conn.execute("SELECT COUNT(*) AS n FROM payout_events").fetchone()["n"]))
+
+    # ---- release-sprint hardening pins: the risky corners, tested not assumed
+    nBatchBefore = dbW.conn.execute("SELECT COUNT(*) AS n FROM payout_batch").fetchone()["n"]
+    dbW.conn.execute("DROP TABLE payout_events")
+    dbW.conn.commit()
+    raised = False
+    try:
+        sW.payout_prepare(cidW, "root@paper.io", 5)
+    except Exception:
+        raised = True
+    dbW.conn.rollback()
+    nBatchMid = dbW.conn.execute("SELECT COUNT(*) AS n FROM payout_batch").fetchone()["n"]
+    dbW.conn.execute("CREATE TABLE payout_events(id INTEGER PRIMARY KEY,"
+                     " batch_id INTEGER NOT NULL, actor TEXT NOT NULL,"
+                     " kind TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',"
+                     " at REAL NOT NULL)")
+    dbW.conn.commit()
+    recovery = sW.payout_prepare(cidW, "root@paper.io", 5)
+    sW.payout_cancel(recovery["batch"]["id"], "root@paper.io", "recovery test")
+    check("pay hardening: a mid-flight failure is rolled back, never left half-cut for a later commit",
+          raised and nBatchMid == nBatchBefore, f"raised={raised} batches={nBatchMid}")
+    rf = sW.payout_prepare(cidW, "root@paper.io", 1)
+    rfAmt = [e["amount_base"] for e in rf["entries"]]
+    sW.payout_cancel(rf["batch"]["id"], "root@paper.io", "tiny ladder")
+    check("pay hardening: a one-unit pool stays exact and integer (1,0,0 — nobody loses a phantom token)",
+          rfAmt == [1, 0, 0], str(rfAmt))
+    sW.payout["allowDuplicateWallet"] = True
+    sp = sW.payout_prepare(cidW, "root@paper.io", 1)
+    spAmt = [e["amount_base"] for e in sp["entries"]]
+    sW.payout_cancel(sp["batch"]["id"], "root@paper.io", "tie split")
+    sW.payout["allowDuplicateWallet"] = False
+    check("pay hardening: when one unit must split tied peers, the split is deterministic, not a coin toss",
+          spAmt == [1, 0, 0, 0] and sp["batch"]["participants"] == 4, str(spAmt))
+    fr2 = sW.payout_freeze(bidW, "root@paper.io")
+    ap2 = sW.payout_approve(bidW, "root@paper.io", 21)
+    check("pay hardening: a settled batch refuses second freezes and second approvals",
+          fr2.get("reason") == "payout_bad_state" and ap2.get("reason") == "payout_bad_state",
+          str(fr2.get("reason")) + "/" + str(ap2.get("reason")))
+    dbW.conn.execute("UPDATE payout_entry SET amount_base=amount_base+5"
+                     " WHERE batch_id=? AND handle='paya'", (bidW,))
+    dbW.conn.commit()
+    rec = sW.payout_reconcile(bidW, "root@paper.io")
+    recEv = rec["events"][0]
+    dbW.conn.execute("UPDATE payout_entry SET amount_base=amount_base-5"
+                     " WHERE batch_id=? AND handle='paya'", (bidW,))
+    sW.payout_reconcile(bidW, "root@paper.io")
+    check("pay hardening: reconcile re-adds the entries and says what it counted (26 after a +5 poke)",
+          rec["batch"]["total_base"] == 26
+          and recEv["kind"] == "reconcile" and "simulated=3" in recEv["detail"], str(recEv)[:110])
+
     # = pb-v3.0 front contract: a boot failure is recoverable, not a hang ==
     js = open(os.path.join(os.path.dirname(__file__), "..", "js", "paperboard.js")).read()
     html = open(os.path.join(os.path.dirname(__file__), "..", "js", "components", "board.js")).read()

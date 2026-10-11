@@ -48,6 +48,15 @@
       "minImpressions": 10
     },
 
+    "payout": {
+      "poolBase": 500000000000,
+      "decimals": 9,
+      "tokenMint": "E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk",
+      "formula": "rank_ladder",
+      "ruleVersion": "pp-v0.1",
+      "periodLabel": "weekly-friday",
+      "allowDuplicateWallet": false
+    },
     "scoring": {
       "version": "pb-v3.0",
       "basePerPost": 10,

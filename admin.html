@@ -68,6 +68,35 @@
       </table>
       <p class="admin-msg" data-slot="msg"></p>
     </section>
+
+    <section data-slot="treasury" hidden>
+      <div class="admin-tools">
+        <label for="payPool">treasury — friday rhythm</label>
+        <input id="payPool" type="number" min="0" placeholder="pool base (config default)" />
+        <button type="button" data-pay="prepare">new batch</button>
+        <button type="button" data-pay="freeze">freeze snapshot</button>
+        <button type="button" data-pay="approve">approve</button>
+        <button type="button" data-pay="simulate">simulate</button>
+        <button type="button" data-pay="retry">retry failed</button>
+        <button type="button" data-pay="reconcile">reconcile</button>
+        <button type="button" data-pay="cancel">cancel</button>
+        <button type="button" data-pay="reload">refresh</button>
+      </div>
+      <div data-slot="paySum"></div>
+      <table class="admin-table">
+        <thead><tr>
+          <th>Rank</th><th>Recipient</th><th>Score</th><th>Wallet</th>
+          <th>Base units</th><th>% pool</th><th>Status</th><th>Tries</th><th>Sig</th>
+        </tr></thead>
+        <tbody data-slot="payRows"></tbody>
+      </table>
+      <p class="admin-note" data-slot="payNotes"></p>
+      <p class="admin-note">history (click a row to review it):</p>
+      <table class="admin-table">
+        <thead><tr><th>Batch</th><th>Label</th><th>Status</th><th>Total</th><th>Cut</th></tr></thead>
+        <tbody data-slot="payHistory"></tbody>
+      </table>
+    </section>
   </div>
   <script src="js/admin.js" defer></script>
 </body>

@@ -274,6 +274,35 @@ token CA: `E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk`
 - the leaderboard grid is deliberately five columns — it shows the
   server's five facts and no more.
 
+## payouts (phase 1, 2026-10): the friday rhythm, in test clothes
+
+- every friday an admin may: **prepare** a batch (a frozen cut of the live
+  board — ranks, points, wallets, the formula and its rule version ride the
+  rows, so the board may dance afterwards and the batch does not move),
+  **freeze** it, **approve** it against the very total (a typed
+  confirmation, checked server-side), and **simulate** the payments —
+  TEST MODE only, a simulation is never a claim of on-chain truth.
+- the pool is one configured number (`config.json` → `paperboard.payout`,
+  amounts in INTEGER base units); the proposed distribution is a
+  **rank-ladder** (weights n..1, floor plus largest-remainder so the parts
+  sum to the pool exactly — integers only; alternates on file:
+  equal-split and points-proportional). pool size, decimals, and the
+  formula choice await the owner's word.
+- eligibility is explained, never silent: no wallet, an unreadable wallet,
+  a wallet still behind its warm-up (`wallet_effective_at`), a closed
+  account, zero points, or a shared wallet — each exclusion is recorded
+  with its reason; duplicates are a policy switch, off by default.
+- the ledger: `payout_batch` / `payout_entry` / `payout_events`, additive
+  to the schema; entries carry a `UNIQUE(batch, account)`; an open batch
+  guards the ledger against a double cut; re-execution is refused (409),
+  and a retry only touches entries that failed — so nobody is paid twice
+  in a retry, and `attempts` is the receipt. the legacy X-era `rewards`
+  ledger stands where it is: untouched, not reused.
+- everything moves through the admin door (`/api/admin/payout` and
+  `/api/admin/payout/<action>`): signed in, allowlisted, JSON-bodied,
+  rate-bucketed, server-side every time. the first real signature is a
+  later phase with a signer that never visits the browser.
+
 ## notes
 
 - BUY in the hero scrolls to the dedicated **buy** section — the two purchase

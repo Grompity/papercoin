@@ -224,6 +224,63 @@ CREATE TABLE IF NOT EXISTS admin_events (
   FOREIGN KEY (submission_id) REFERENCES submissions(id)
 );
 
+-- payouts (phase 1): the Friday rhythm in test clothes. a batch cuts a
+-- frozen snapshot of the board (ranks, points, wallets, the formula and
+-- the rule version ride the ROWS, so a moving leaderboard can never
+-- silently rewrite a batch). amounts are INTEGER base units. the events
+-- table is the append-only witness: nothing here overwrites history.
+CREATE TABLE IF NOT EXISTS payout_batch (
+  id             INTEGER PRIMARY KEY,
+  competition_id INTEGER NOT NULL,
+  label          TEXT NOT NULL,
+  period         TEXT NOT NULL,
+  cutoff_at      REAL NOT NULL,
+  generated_at   REAL NOT NULL,
+  pool_base      INTEGER NOT NULL,
+  decimals       INTEGER NOT NULL DEFAULT 9,
+  token_mint     TEXT NOT NULL DEFAULT '',
+  formula        TEXT NOT NULL,
+  rule_version   TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'draft',
+  total_base     INTEGER NOT NULL DEFAULT 0,
+  participants   INTEGER NOT NULL DEFAULT 0,
+  excluded_json  TEXT NOT NULL DEFAULT '[]',
+  warnings_json  TEXT NOT NULL DEFAULT '[]',
+  frozen_at      REAL,
+  approved_by    TEXT,
+  approved_at    REAL,
+  executed_at    REAL,
+  closed_reason  TEXT NOT NULL DEFAULT '',
+  FOREIGN KEY (competition_id) REFERENCES competitions(id)
+);
+CREATE TABLE IF NOT EXISTS payout_entry (
+  id           INTEGER PRIMARY KEY,
+  batch_id     INTEGER NOT NULL,
+  account_id   INTEGER NOT NULL,
+  rank         INTEGER NOT NULL,
+  points       REAL NOT NULL DEFAULT 0,
+  handle       TEXT NOT NULL DEFAULT '',
+  wallet       TEXT NOT NULL,
+  amount_base  INTEGER NOT NULL,
+  share_pct    REAL NOT NULL DEFAULT 0,
+  status       TEXT NOT NULL DEFAULT 'proposed',
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  tx_sig       TEXT,
+  detail       TEXT NOT NULL DEFAULT '',
+  UNIQUE (batch_id, account_id),
+  FOREIGN KEY (batch_id) REFERENCES payout_batch(id),
+  FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+CREATE TABLE IF NOT EXISTS payout_events (
+  id        INTEGER PRIMARY KEY,
+  batch_id  INTEGER NOT NULL,
+  actor     TEXT NOT NULL,
+  kind      TEXT NOT NULL,
+  detail    TEXT NOT NULL DEFAULT '',
+  at        REAL NOT NULL,
+  FOREIGN KEY (batch_id) REFERENCES payout_batch(id)
+);
+
 CREATE INDEX IF NOT EXISTS ix_submissions_account ON submissions(account_id, competition_id);
 CREATE INDEX IF NOT EXISTS ix_magic_account       ON magic_links(account_id);
 CREATE INDEX IF NOT EXISTS ix_rewards_account     ON rewards(account_id);
