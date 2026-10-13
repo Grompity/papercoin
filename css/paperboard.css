@@ -305,3 +305,19 @@
   flex-wrap: wrap; margin: 0 }
 .p-xverify__copy { font-family: var(--mono); font-size: .66rem; color: var(--green) }
 .p-xverify__gate { font-size: .84rem; color: var(--tan) }
+
+/* — the scoring spread, simplified (2026-10-13): breathing room in one
+     section, nothing else. heading air over its body, lists and paragraphs
+     given line-height, the maximum line and footnote given their own lane,
+     and stacked columns given comfortable gaps. the headline gap rides the
+     h2's own margin-block; the long contract address already wraps through
+     .scoring li b's overflow-wrap; dividers and the one-column phone stack
+     ride the ground .cols rules, untouched. */
+.scoring .cols { gap: clamp(34px, 3.4vw, 56px) }
+.scoring .cols h3 { margin-block: .4rem 1.15rem }
+.scoring .cols p { line-height: 1.65 }
+.scoring .cols ul { margin-block: .7rem .5rem }
+.scoring .cols li { line-height: 1.6 }
+.scoring .sc-max { margin-block: 1rem .35rem }
+.scoring .sc-fn { margin-block: 0; font-size: .8rem; line-height: 1.6;
+  color: var(--cream-faint) }

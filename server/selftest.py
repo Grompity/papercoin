@@ -2251,30 +2251,44 @@ def main():
           and ('"' + OK_SENTENCE + '"') in uxjs and EXAMPLE == OK_SENTENCE,
           xwE["example"][:48])
 
-    # ---- P6F (copy pass): the public rules page mirrors the engine, plainly ----
+    # ---- P6H (the approved simplification): the rules spread is one plain
+    # ---- three-column list; every printed figure stays a mirror of the engine --
     uxsc = open(os.path.join(os.path.dirname(__file__), "..", "js", "components",
                              "scoring.js")).read()
-    check("P6F copy: the three public columns read plain and honest —"
-          " qualification, points, fairness, and the closing trust line — while"
+    check("P6H copy: the three public columns are the approved spread —"
+          " 01. Qualify / 02. Earn points / 03. Keep it real, the one-line"
+          " qualifier intro ('at least one:'), the identifier list riding"
+          " ${CONFIG.contractAddress}, 'One identifier is enough.', the two"
+          " figure rows, the Maximum line and the footnoted curve — while the"
+          " removed fine print (duplicate window, frequency walls, the pending"
+          " edge, the audit trail, admin corrections) stays off the page and"
           " the zero-signal rows, the (w-cap shows…) parenthetical and the"
-          " pb-v3 jargon are gone from the shipped page",
-          "What qualifies a post" in uxsc and "How points work" in uxsc
-          and "Fairness, plainly" in uxsc
-          and "Your browser cannot set your score" in uxsc
+          " pb-v3 jargon stay gone",
+          "${CONFIG.contractAddress}" in uxsc
+          and all(k in uxsc for k in ("01. Qualify", "02. Earn points",
+                                      "03. Keep it real",
+                                      "One identifier is enough.",
+                                      "not your browser."))
           and all(k not in uxsc for k in
                   ('data-set="w-reply"', 'data-set="w-repost"',
                    'data-set="w-quote"', 'data-set="w-imp"',
-                   "pb-v3", "(w-cap")), "scoring lanes drifted")
+                   "pb-v3", "(w-cap", "frequency walls",
+                   "Transparent corrections", "ride along as evidence",
+                   "One post, one score", "Your browser cannot set")),
+          "scoring lanes drifted")
     scF = stY2.pb["scoring"]
-    check("P6F copy ↔ engine: the page's one written figure (the knee in"
-          " 'to the first 100') equals the config's, the three living figures"
-          " still ride server-fed slots (w-base / w-like / w-cap) painted at"
-          " boot, and the four omitted signals are omitted BECAUSE they score"
-          " nothing (all zero in the shipped config — should one ever wake,"
-          " this pin turns red and the page must recopy)",
-          ("first " + str(scF["likeKnee"])) in uxsc
-          and all(k in uxsc for k in ('data-set="w-base"', 'data-set="w-like"',
-                                       'data-set="w-cap"'))
+    check("P6H copy ↔ engine: the page's printed figures are mirrors of the"
+          " shipped config — +10 base, +1-each likes, the Maximum 210 and the"
+          " knee in the footnote's 'first 100' all equal the engine's — the"
+          " three living slots (w-base / w-like / w-cap) still ride it for"
+          " boot-time repaint, and the four omitted signals are omitted"
+          " BECAUSE they score nothing (all zero in the shipped config —"
+          " should one ever wake, this pin turns red and the page must recopy)",
+          ('data-set="w-base">' + str(scF["basePerPost"]) + "<") in uxsc
+          and ('data-set="w-like">' + str(scF["perLike"]) + "</span> each") in uxsc
+          and ('data-set="w-cap">' + str(scF["postCap"]) + "<") in uxsc
+          and ("first " + str(scF["likeKnee"])) in uxsc
+          and "Maximum: " in uxsc and "points per post." in uxsc
           and scF["perLike"] == 1 and scF["basePerPost"] == 10
           and scF["postCap"] == 210
           and all(scF[k] == 0 for k in ("perReply", "perRepost", "perQuote"))
