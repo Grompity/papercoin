@@ -1963,7 +1963,7 @@ def main():
     rY = http_app.Router(sY, stY2, dY, sY.x)
     JSONY = {"content-type": "application/json"}
     EXAMPLE = ("I just signed up for PAPERBOARD, a new raiding platform by"
-               " @paperusdc where you get paid to raid!")
+               " @paperusdc. Get paid to post!")
 
     def seatY(account_row):
         out = rY.dispatch("GET", "/api/auth/magic",
@@ -2233,6 +2233,17 @@ def main():
           and "X account verified" in uxjs
           and "claimed_handle=None" in uxsvc and "nonce" not in uxsvc.lower(),
           "paint lane drifted")
+    OK_SENTENCE = ("I just signed up for PAPERBOARD, a new raiding platform"
+                   " by @paperusdc. Get paid to post!")
+    check("P6E copy: one approved sentence rules everywhere — the config"
+          " example, the route's xverify payload and the three wording walls"
+          " are measured by the check above, and the shipped fallback"
+          " constant and the battery's own wire-stub fixture both hold this"
+          " verbatim text (so the happy-path verification drives the REAL"
+          " approved sentence through the real verify_x)",
+          xwE["example"] == OK_SENTENCE
+          and ('"' + OK_SENTENCE + '"') in uxjs and EXAMPLE == OK_SENTENCE,
+          xwE["example"][:48])
 
     print("failures:", len(FAILURES))
     return len(FAILURES)

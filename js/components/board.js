@@ -153,7 +153,7 @@ export function Board() {
                         <p class="p-xverify__why">Publish the verification post below from the X
                            account you want bound to PAPERBOARD — the server reads the post
                            itself, so its words and its byline are the deed.</p>
-                        <pre class="p-xverify__prompt" data-slot="x-prompt" aria-live="polite">I just signed up for PAPERBOARD, a new raiding platform by @paperusdc — points for posts, on the board!</pre>
+                        <pre class="p-xverify__prompt" data-slot="x-prompt" aria-live="polite">I just signed up for PAPERBOARD, a new raiding platform by @paperusdc. Get paid to post!</pre>
                         <p class="p-xverify__copyline">
                           <button type="button" class="btn btn--ghost" data-action="copy-example">Copy verification post</button>
                           <span class="p-xverify__copy" data-slot="copy-feedback" aria-live="polite"></span>

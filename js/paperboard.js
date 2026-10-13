@@ -442,8 +442,7 @@ async function doChangeWallet() {
 }
 
 /* — the X ownership proof (a post is the deed; the server reads it) — */
-const X_VERIFY_FALLBACK = "I just signed up for PAPERBOARD, a new raiding"
-  + " platform by @paperusdc — points for posts, on the board!";
+const X_VERIFY_FALLBACK = "I just signed up for PAPERBOARD, a new raiding platform by @paperusdc. Get paid to post!";
 async function doXVerify() {
   const input = $("#pb-xverify-input");
   const v = (input?.value || "").trim();

@@ -130,7 +130,7 @@
       "mention": "@paperusdc",
       "announce": "paperboard",
       "joinWords": ["join", "signed up", "signing up", "signup", "new to"],
-      "example": "I just signed up for PAPERBOARD, a new raiding platform by @paperusdc — points for posts, on the board!",
+      "example": "I just signed up for PAPERBOARD, a new raiding platform by @paperusdc. Get paid to post!",
       "wording": "the post must tag @paperusdc and say you joined PAPERBOARD."
     }
   }
