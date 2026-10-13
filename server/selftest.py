@@ -1871,16 +1871,22 @@ def main():
     html = open(os.path.join(os.path.dirname(__file__), "..", "js", "components", "board.js")).read()
     i_cfg = js.find('get("/api/config")')
     i_fin = js.find("S.booting = false", i_cfg)
-    i_err = js.find('setState("err"); paintBoard();', i_cfg)
-    i_off = js.find('setState("off"); paintBoard();', i_cfg)
-    check("pb front: the boot path reaches the recoverable error state (not a hang)",
+    i_err = js.find('setMode("bad answer", "stamp--rot"); setState("idle")', i_cfg)
+    i_off = js.find('setMode("off press", "stamp--rot");', i_cfg)
+    check("pb front: the boot path reaches the recoverable branch before its finally (not a hang)",
           -1 < i_cfg < i_err and "the server did not answer the board" in js,
           "cfg@%s err@%s" % (i_cfg, i_err))
-    check("pb front: an HTTP failure (404 or 500) answers in words, not a spinner forever",
-          js.count("the server did not answer the board") == 1 and i_err < i_fin,
-          "one err branch")
-    check("pb front: the offline (network) branch still leads to the off-press panel",
+    check("pb front: an HTTP failure answers in words AND reopens the email lane —"
+          " a bad config call never holds sign-in hostage (the mobile incident)",
+          js.count("the server did not answer the board") == 1 and i_err < i_fin
+          and js.count('setState("idle"); paintBoard();') == 2,
+          "one err branch, both land on idle")
+    check("pb front: the offline (network) branch still stamps the truth (off press)"
+          " and lands the visitor on the same email lane",
           -1 < i_cfg < i_off < i_err, "off@%s" % i_off)
+    check("pb front: the recoverable branch names its stamp in the shipped code"
+          " ('bad answer') so the panel head can speak without the pane",
+          'setMode("bad answer", "stamp--rot")' in js, "stamp wired")
     check("pb front: the retry re-boots while the config is missing, else refreshes as always",
           "(S.cfg ? refreshAccount(true) : boot())" in js, "wired")
     check("pb front: no boot overlap — a running boot absorbs a concurrent retry",

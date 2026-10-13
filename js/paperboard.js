@@ -93,13 +93,16 @@ export async function boot() {
     resolveAccount();
   } catch (e) {
     console.warn('[pb] boot caught:', e && e.constructor && e.constructor.name, (e||{}).message, (e||{}).stack ? String(e.stack).split(String.fromCharCode(10))[1] : '');
-    if (e instanceof TypeError) {            /* network down — off press */
+    if (e instanceof TypeError) {            /* network down — nothing to fetch; the stamp says so */
       S.mode = "off"; setMode("off press", "stamp--rot");
-      setState("off"); paintBoard();
-    } else {                                 /* server answered badly — recoverable */
+      setState("idle"); paintBoard();
+    } else {                                 /* server answered badly (401-class edges, deploy swaps,
+                                                mobile relays) — recoverable. the email lane stays
+                                                open for visitors: signing in needs no board config,
+                                                and a failing send already speaks in the join lane. */
       const slot = $('[data-slot="err"]');
       if (slot) slot.textContent = "the server did not answer the board (" + ((e && e.message) || "error") + ")";
-      setState("err"); paintBoard();
+      setMode("bad answer", "stamp--rot"); setState("idle"); paintBoard();
     }
   } finally {
     S.booting = false;
