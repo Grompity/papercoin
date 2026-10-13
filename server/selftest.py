@@ -2190,6 +2190,50 @@ def main():
           "tr-you" in uxjs and "tr-you" in uxcss
           and "inset 3px 0 0 var(--green)" in uxcss)
 
+    # ---- P6E (onboarding pass): the verification lane speaks in one voice ----
+    # the server is the only source for the verification post: /api/config now
+    # carries it (xverify block), the shipped sentence provably satisfies the
+    # very wording walls verify_x keeps, the template carries the step and the
+    # spam notice, and the paint gate reads the account payload only — so a
+    # refresh rebuilds the same view from the record, never from local state.
+    uxsvc = open(os.path.join(os.path.dirname(__file__), "paperboard",
+                              "service.py")).read()
+    xwE = stY2.pb["xVerify"]
+    outE = rY.dispatch("GET", "/api/config", {}, {}, {}, None)
+    check("P6E prompt: the exact verification post rides /api/config (xverify"
+          " .example), and that shipped sentence clears the three walls"
+          " verify_x itself keeps — mention, announce word, a join word — so"
+          " 'copy verification post' copies law, not decoration",
+          outE[0] == 200
+          and (outE[1].get("xverify") or {}).get("example") == xwE["example"]
+          and xwE["mention"].lower() in xwE["example"].lower()
+          and xwE["announce"].lower() in xwE["example"].lower()
+          and any(str(w).lower() in xwE["example"].lower()
+                  for w in xwE["joinWords"]),
+          str((outE[1].get("xverify") or {}).get("example"))[:48])
+    check("P6E template: both email lanes carry the spam-folder notice, and"
+          " the unverified onboarding is one labelled task (#pb-xverify-step"
+          " with its 'X verification required' tag, the exact prompt as its"
+          " default text, a copy verb, and the next step named by its own"
+          " button) while the submit desk keeps its own gated id",
+          uxbd.count("spam or junk folder") == 2
+          and xwE["example"] in uxbd
+          and "X verification required" in uxbd and 'id="pb-xverify-step"' in uxbd
+          and "Copy verification post" in uxbd and "I've posted it" in uxbd
+          and 'id="pb-submit-box"' in uxbd
+          and 'data-slot="submit-gate"' in uxbd, "template lanes drifted")
+    check("P6E paint: the gate reads the server's payload and nothing else"
+          " (x_verified in acct → needsX → the submit box and its one"
+          " explanatory note), the prompt is fetched via xverify.example with"
+          " a shipped fallback constant, the copy lane answers audibly, and"
+          " the door still has no nonce and no expiry to forget (neither word"
+          " appears in the service at all)",
+          "needsX" in uxjs and "xverify.example" in uxjs
+          and "X_VERIFY_FALLBACK" in uxjs and "copy-feedback" in uxjs
+          and "X account verified" in uxjs
+          and "claimed_handle=None" in uxsvc and "nonce" not in uxsvc.lower(),
+          "paint lane drifted")
+
     print("failures:", len(FAILURES))
     return len(FAILURES)
 

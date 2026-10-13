@@ -288,3 +288,20 @@
 .p-dash button[disabled] { opacity: .55; pointer-events: none }
 .board-table tbody tr.tr-you { background: rgba(62, 201, 95, .07);
   box-shadow: inset 3px 0 0 var(--green) }
+
+/* PAPERBOARD onboarding pass — Step 1 is one bordered task, the prompt rides
+   in mono so it reads as copyable law, the copy button answers out loud, and
+   the closed submit desk explains itself. */
+.pb-spam-note { font-size: .8rem; color: var(--tan) }
+.p-xverify__step { display: grid; gap: .7rem; border: 1px dashed var(--line);
+  padding: .9rem 1rem }
+.p-xverify__step[hidden] { display: none }
+.p-xverify__tag { font-family: var(--mono); font-size: .6rem; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--tan); margin: 0 }
+.p-xverify__why, .p-xverify__next { font-size: .84rem; margin: 0 }
+.p-xverify__prompt { font-family: var(--mono); font-size: .8rem; white-space: pre-wrap;
+  word-break: break-word; margin: 0; border: 1px dashed var(--line); padding: .7em .8em }
+.p-xverify__copyline { display: flex; gap: .7em; align-items: baseline;
+  flex-wrap: wrap; margin: 0 }
+.p-xverify__copy { font-family: var(--mono); font-size: .66rem; color: var(--green) }
+.p-xverify__gate { font-size: .84rem; color: var(--tan) }

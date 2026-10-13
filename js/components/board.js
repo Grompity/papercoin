@@ -80,6 +80,8 @@ export function Board() {
                              spellcheck="false" placeholder="you@internet.com" maxlength="254">
                       <button type="button" class="btn btn--solid" data-action="join">Continue</button>
                     </div>
+                    <p class="pb-spam-note">Your sign-in link may arrive in your spam or junk folder.
+                       Check there if you don't see it in your inbox.</p>
                     <p class="p-join__err" data-slot="join-err" aria-live="polite"></p>
                   </div>
                 </div>
@@ -90,6 +92,8 @@ export function Board() {
                     <h3>Check your email.</h3>
                     <p>One link, short-lived, single use. Click it and this page
                        will know you.</p>
+                    <p class="pb-spam-note">Your sign-in link may arrive in your spam or junk folder.
+                       Check there if you don't see it in your inbox.</p>
                     <p class="p-email__link" data-slot="magic-link" aria-live="polite"></p>
                   </div>
                 </div>
@@ -130,24 +134,37 @@ export function Board() {
                     </div>
                     <div class="metrics" data-slot="acct-stats"><!-- filled by app --></div>
 
-                    <div class="p-dash__submit">
+                    <div class="p-dash__submit" id="pb-submit-box">
                       <label class="sr" for="pb-submit-input">X post URL</label>
                       <input id="pb-submit-input" type="text" inputmode="url" autocomplete="off"
                              spellcheck="false" placeholder="https://x.com/…/status/…">
                       <button type="button" class="btn btn--solid" data-action="submit-post">Post it ${ICONS.x}</button>
                     </div>
+                    <p class="p-xverify__gate" data-slot="submit-gate" hidden>
+                      X verification first — once the proof post is read, the contribution desk opens here.</p>
                     <div class="p-dash__verdict" data-slot="submit-verdict" aria-live="polite" hidden></div>
 
                     <div class="p-dash__xverify" id="pb-xstrip" hidden>
                       <div class="p-dash__submit">
                         <span class="p-dash__swap" data-slot="x-status">X: —</span>
-                        <button type="button" class="btn btn--ghost" data-action="copy-example">copy example</button>
                       </div>
-                      <div class="p-dash__submit">
-                        <label class="sr" for="pb-xverify-input">X verification post URL</label>
-                        <input id="pb-xverify-input" type="text" inputmode="url" autocomplete="off"
-                               spellcheck="false" placeholder="your own post announcing PAPERBOARD">
-                        <button type="button" class="btn btn--solid" data-action="x-verify">Verify X</button>
+                      <div class="p-xverify__step" id="pb-xverify-step">
+                        <p class="p-xverify__tag" data-slot="x-step">X verification required</p>
+                        <p class="p-xverify__why">Publish the verification post below from the X
+                           account you want bound to PAPERBOARD — the server reads the post
+                           itself, so its words and its byline are the deed.</p>
+                        <pre class="p-xverify__prompt" data-slot="x-prompt" aria-live="polite">I just signed up for PAPERBOARD, a new raiding platform by @paperusdc — points for posts, on the board!</pre>
+                        <p class="p-xverify__copyline">
+                          <button type="button" class="btn btn--ghost" data-action="copy-example">Copy verification post</button>
+                          <span class="p-xverify__copy" data-slot="copy-feedback" aria-live="polite"></span>
+                        </p>
+                        <p class="p-xverify__next">Once you've published it, paste its link below — this happens once per account, and the post never needs to stay special.</p>
+                        <div class="p-dash__submit">
+                          <label class="sr" for="pb-xverify-input">X verification post URL</label>
+                          <input id="pb-xverify-input" type="text" inputmode="url" autocomplete="off"
+                                 spellcheck="false" placeholder="paste the verification post's link">
+                          <button type="button" class="btn btn--solid" data-action="x-verify">I've posted it — verify my X account</button>
+                        </div>
                       </div>
                       <div class="p-dash__verdict" data-slot="xverify-verdict" aria-live="polite" hidden></div>
                     </div>

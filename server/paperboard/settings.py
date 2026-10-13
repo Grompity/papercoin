@@ -142,5 +142,8 @@ class Settings:
             "tiers": pb["tiers"],
             # the account layer's printed rules (timings only — never secrets)
             "account": pb.get("account", {}),
+            # the verification post's exact words (copy only — the battery
+            # proves this very sentence passes the three walls verify_x keeps)
+            "xverify": pb.get("xVerify", {}),
             "emailMode": self.email_provider,
         }

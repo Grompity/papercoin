@@ -244,14 +244,30 @@ function paintDash(animate = true) {
   }
   const unit = S.cfg?.prize?.unit || S.cfg?.prize?.type || "";
   const stats = $('[data-slot="acct-stats"]');
+  /* — the onboarding gate, gate-only: every branch reads the account payload
+     (server truth), so a refresh, a sign-in, and a reload each rebuild the
+     same view from the record. A returning verified user skips the task, and
+     an older backend with no x_verified concept never sees its desk close. */
   const xst = $('[data-slot="x-status"]');
-  if (xst) xst.textContent = acct.x_verified
-    ? `X: @${acct.x_handle || "?"} — verified`
-    : "X: one post proves it — paste your announcement post once";
-  /* version gate: an older backend carries no x_verified field at all —
-     hide the whole verification strip rather than show a dead form */
   const xwrap = $("#pb-xstrip");
-  if (xwrap) xwrap.hidden = !("x_verified" in acct);
+  const xKnown = "x_verified" in acct;
+  if (xwrap) xwrap.hidden = !xKnown;         /* version gate: no field, no dead form */
+  const xok = xKnown && !!acct.x_verified;
+  const needsX = xKnown && !xok;             /* the one gate the submit desk obeys */
+  const prompt = $('[data-slot="x-prompt"]');
+  const stepTag = $('[data-slot="x-step"]');
+  const stepBox = $("#pb-xverify-step");
+  const subBox = $("#pb-submit-box");
+  const gateNote = $('[data-slot="submit-gate"]');
+  if (prompt) prompt.textContent = (S.cfg && S.cfg.xverify
+    && S.cfg.xverify.example) || X_VERIFY_FALLBACK;
+  if (stepTag) stepTag.textContent = "X verification required";
+  if (xst) xst.textContent = xok
+    ? `X account verified — @${acct.x_handle || "?"}`
+    : "X verification required — one post is the deed; paste its link once you've published";
+  if (stepBox) stepBox.hidden = xok;                   /* verified eyes skip the task */
+  if (subBox) subBox.hidden = needsX;                  /* one primary verb at a time */
+  if (gateNote) gateNote.hidden = !needsX;             /* explain the closed desk */
   if (stats) stats.innerHTML = `
     <div class="metric"><span class="metric__k">Submitted</span><span class="metric__v">${fmt(d.submitted)}</span></div>
     <div class="metric"><span class="metric__k">Verified</span><span class="metric__v">${fmt(d.verified_posts)}</span></div>
@@ -426,6 +442,8 @@ async function doChangeWallet() {
 }
 
 /* — the X ownership proof (a post is the deed; the server reads it) — */
+const X_VERIFY_FALLBACK = "I just signed up for PAPERBOARD, a new raiding"
+  + " platform by @paperusdc — points for posts, on the board!";
 async function doXVerify() {
   const input = $("#pb-xverify-input");
   const v = (input?.value || "").trim();
@@ -441,7 +459,8 @@ async function doXVerify() {
                   verification_post_used: "that post already verified somebody else.",
                   verification_exists: "this account already verified — one proof each.",
                   x_handle_taken: "that X identity already rides another account.",
-                  verify_wording: "the post must tag @paperusdc and say you joined PAPERBOARD.",
+                  verify_wording: S.cfg?.xverify?.wording
+                    || "the post must tag @paperusdc and say you joined PAPERBOARD.",
                   verification_pending: "the witness feed answered thin (a byline without an id) — try again in a minute.",
                   bad_post_url: "that doesn't read like an X post URL.",
                   post_not_found: "no such post out there (or the provider can't see it).",
@@ -469,8 +488,17 @@ function wire() {
     else if (a === "onboard") await doOnboard();
     else if (a === "submit-post") { btn.disabled = true; await doSubmit(); btn.disabled = false; }
     else if (a === "x-verify") { btn.disabled = true; await doXVerify(); btn.disabled = false; }
-    else if (a === "copy-example") navigator.clipboard?.writeText(
-      "I just signed up for PAPERBOARD, a new raiding platform by @paperusdc — points for posts, on the board!").catch(() => {});
+    else if (a === "copy-example") {
+      /* the prompt on screen is the server's own sentence — the copy button
+         copies law, not decoration; both answers are visible, not silent */
+      const fb = $('[data-slot="copy-feedback"]');
+      const text = ($('[data-slot="x-prompt"]')?.textContent || "").trim() || X_VERIFY_FALLBACK;
+      const sayCopy = (t) => { if (fb) fb.textContent = t; };
+      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text)
+        .then(() => sayCopy("copied ✓"))
+        .catch(() => sayCopy("copy it by hand — the clipboard said no."));
+      else sayCopy("the clipboard is asleep here — copy it by hand.");
+    }
     else if (a === "open-wallet") setState("wallet");
     else if (a === "change-wallet") await doChangeWallet();
     else if (a === "logout") { try { await post("/api/auth/logout"); } catch {} window.location.reload(); }
