@@ -9,7 +9,7 @@ export function Scoring() {
       <div class="rail">
         <div class="rule"><div class="rule__tag">
           <span>Section: how points are printed</span>
-          <span>engine <span data-set="scoring-version">—</span></span>
+          <span>server-scored</span>
         </div></div>
 
         <h2 class="board__title" id="scoring-title" data-reveal style="margin-block:1rem .4rem">
@@ -18,53 +18,43 @@ export function Scoring() {
 
         <div class="cols cols--3" data-reveal>
           <div>
-            <h3>The gate</h3>
-            <p>
-              a post scores only if the submitting account is <b>verified</b>,
-              <b>the post's own author</b> is that account's X identity
-              <em>(read by the server, not asserted by the browser)</em>,
-              <b>and</b> the post contains one of the three identifiers:
-            </p>
+            <h3>What qualifies a post</h3>
+            <p>You submit a link to your own public X post. For it to qualify:</p>
             <ul>
-              <li><b>${CONFIG.contractAddress}</b> — the CA, case-strict</li>
-              <li><b>@paperusdc</b> — the handle, case-blind</li>
-              <li><b>$paper</b> — the ticker, case-blind</li>
+              <li>your account's <b>X identity is verified</b> — one proof post, once;</li>
+              <li>the post is <b>authored by that same X account</b> — the server reads the byline, never the browser;</li>
+              <li>and the post carries at least one of the three recognized identifiers:</li>
             </ul>
-            <p>One is enough. Two is not a bonus. That is the whole gate.</p>
+            <ul>
+              <li><b>${CONFIG.contractAddress}</b> — the contract address, case-strict;</li>
+              <li><b>@paperusdc</b> — the handle, case-blind;</li>
+              <li><b>$paper</b> — the ticker, case-blind.</li>
+            </ul>
+            <p>One identifier is enough. More change nothing.</p>
           </div>
 
           <div>
-            <h3>The point press</h3>
+            <h3>How points work</h3>
             <table class="score-table">
-              <thead><tr><th>Signal</th><th>Points</th></tr></thead>
+              <thead><tr><th>What earns</th><th>Points</th></tr></thead>
               <tbody data-slot="score-table">
-                <tr><td>per qualifying post (base)</td><td data-set="w-base">—</td></tr>
-                <tr><td>like</td><td data-set="w-like">—</td></tr>
-                <tr><td>reply</td><td data-set="w-reply">—</td></tr>
-                <tr><td>repost</td><td data-set="w-repost">—</td></tr>
-                <tr><td>quote</td><td data-set="w-quote">—</td></tr>
-                <tr><td>impressions</td><td data-set="w-imp">—</td></tr>
-                <tr><td>per-post cap</td><td data-set="w-cap">—</td></tr>
+                <tr><td>every qualifying post</td><td data-set="w-base">—</td></tr>
+                <tr><td>likes — a point each to the first 100, then a slower tail</td><td data-set="w-like">—</td></tr>
+                <tr><td>maximum per post</td><td data-set="w-cap">—</td></tr>
               </tbody>
             </table>
-            <p style="margin-top:.8rem">Since pb-v3: <b>only likes add points</b> —
-               one per like to the first hundred, a slower tail after, hard-capped
-               (w-cap shows the total ceiling). A like count the server could not
-               retrieve holds its bonus PENDING — never scored as a zero — until
-               an official count (automatic or admin-verified) settles it; the
-               curve is the same either way.</p>
+            <p style="margin-top:.8rem">Only likes add points; replies, reposts, quotes and impressions ride along as evidence and score nothing. A like count the server cannot verify yet holds its bonus <b>pending</b> — never a false zero — and an official count settles it when it arrives. Nothing is promised by the count alone: the gate above and the server's own reading decide every score.</p>
           </div>
 
           <div>
-            <h3>Anti-gaming</h3>
+            <h3>Fairness, plainly</h3>
             <ul>
-              <li><b>Duplicates</b> — same author, same text inside the window: the first one scores, the echoes watch from the breakdown.</li>
-              <li><b>Frequency cap</b> — a wall of posts stops farming after the configured count.</li>
-              <li><b>Honest zeros</b> — a verified zero is a measurement, not a penalty; an unmeasured post simply waits (since v3 the thin-signal discount rests).</li>
-              <li><b>Audit trail</b> — every stored point keeps its contributions; any row can be explained, in court. An official like count may be corrected — never silently — by an admin.</li>
+              <li><b>One post, one score</b> — the same text from the same author inside the window scores once; echoes ride the breakdown at zero.</li>
+              <li><b>No spam farming</b> — frequency walls keep a flood of posts from buying an edge.</li>
+              <li><b>Fair measurement</b> — a verified zero is a real result; a metric the server can't read stays pending instead of being recorded as zero.</li>
+              <li><b>Transparent corrections</b> — every point traces to its contributions, and an admin's correction to an official like count is recorded, never silent.</li>
             </ul>
-            <p><b class="g">Client input is never trusted:</b> no endpoint takes a
-               score, a ranking, or a reward from the browser.</p>
+            <p><b>Scores are calculated and verified by the server.</b> Your browser cannot set your score, leaderboard rank, or rewards.</p>
           </div>
         </div>
 

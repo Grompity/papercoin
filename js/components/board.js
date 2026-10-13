@@ -34,7 +34,7 @@ export function Board() {
               </li>
               <li class="board__step">
                 <span class="board__step-n">02</span>
-                <span><b>Verify and submit</b><span>verify your X account, then submit links to your eligible posts.</span></span>
+                <span><b>Verify and submit</b><span>verify your X account, then submit links to your eligible posts (<a href="#scoring">see post qualifications ↓</a>).</span></span>
               </li>
               <li class="board__step">
                 <span class="board__step-n">03</span>
@@ -80,8 +80,7 @@ export function Board() {
                              spellcheck="false" placeholder="you@internet.com" maxlength="254">
                       <button type="button" class="btn btn--solid" data-action="join">Continue</button>
                     </div>
-                    <p class="pb-spam-note">Your sign-in link may arrive in your spam or junk folder.
-                       Check there if you don't see it in your inbox.</p>
+                    <p class="pb-spam-note">Can't find your sign-in email? Check your spam or junk folder.</p>
                     <p class="p-join__err" data-slot="join-err" aria-live="polite"></p>
                   </div>
                 </div>
@@ -92,8 +91,7 @@ export function Board() {
                     <h3>Check your email.</h3>
                     <p>One link, short-lived, single use. Click it and this page
                        will know you.</p>
-                    <p class="pb-spam-note">Your sign-in link may arrive in your spam or junk folder.
-                       Check there if you don't see it in your inbox.</p>
+                    <p class="pb-spam-note">Can't find your sign-in email? Check your spam or junk folder.</p>
                     <p class="p-email__link" data-slot="magic-link" aria-live="polite"></p>
                   </div>
                 </div>

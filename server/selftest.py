@@ -2245,6 +2245,43 @@ def main():
           and ('"' + OK_SENTENCE + '"') in uxjs and EXAMPLE == OK_SENTENCE,
           xwE["example"][:48])
 
+    # ---- P6F (copy pass): the public rules page mirrors the engine, plainly ----
+    uxsc = open(os.path.join(os.path.dirname(__file__), "..", "js", "components",
+                             "scoring.js")).read()
+    check("P6F copy: the three public columns read plain and honest —"
+          " qualification, points, fairness, and the closing trust line — while"
+          " the zero-signal rows, the (w-cap shows…) parenthetical and the"
+          " pb-v3 jargon are gone from the shipped page",
+          "What qualifies a post" in uxsc and "How points work" in uxsc
+          and "Fairness, plainly" in uxsc
+          and "Your browser cannot set your score" in uxsc
+          and all(k not in uxsc for k in
+                  ('data-set="w-reply"', 'data-set="w-repost"',
+                   'data-set="w-quote"', 'data-set="w-imp"',
+                   "pb-v3", "(w-cap")), "scoring lanes drifted")
+    scF = stY2.pb["scoring"]
+    check("P6F copy ↔ engine: the page's one written figure (the knee in"
+          " 'to the first 100') equals the config's, the three living figures"
+          " still ride server-fed slots (w-base / w-like / w-cap) painted at"
+          " boot, and the four omitted signals are omitted BECAUSE they score"
+          " nothing (all zero in the shipped config — should one ever wake,"
+          " this pin turns red and the page must recopy)",
+          ("first " + str(scF["likeKnee"])) in uxsc
+          and all(k in uxsc for k in ('data-set="w-base"', 'data-set="w-like"',
+                                       'data-set="w-cap"'))
+          and scF["perLike"] == 1 and scF["basePerPost"] == 10
+          and scF["postCap"] == 210
+          and all(scF[k] == 0 for k in ("perReply", "perRepost", "perQuote"))
+          and scF["impressions"]["points"] == 0, str(scF["version"]))
+    check("P6F steps & voice: step 02 points at the rules through the one"
+          " real anchor (#scoring exists in the shipped scoring component — no"
+          " broken hop invented), and the spam reminder speaks in the owner's"
+          " own words on both email lanes",
+          "see post qualifications" in uxbd and 'href="#scoring"' in uxbd
+          and 'id="scoring"' in uxsc
+          and uxbd.count("Can't find your sign-in email?") == 2,
+          "voice or anchor drifted")
+
     print("failures:", len(FAILURES))
     return len(FAILURES)
 
