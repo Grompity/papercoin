@@ -11,6 +11,20 @@ money mail away.
 import smtplib
 import ssl
 
+# The framework python ships with an empty OpenSSL trust store (its documented
+# bundle location was never populated here), so verification rides an explicit
+# pointer to the macOS system anchor bundle. A missing bundle raises at
+# context creation — fail closed, never a silently unverified handshake.
+CA_BUNDLE = "/etc/ssl/cert.pem"
+
+
+def _ssl_context():
+    """The one TLS context both SMTP lanes share: verification on, hostname
+    checking on (both the stdlib defaults), anchors loaded explicitly."""
+    ctx = ssl.create_default_context()
+    ctx.load_verify_locations(cafile=CA_BUNDLE)
+    return ctx
+
 
 class MockMail:
     """Dev mode. Always flags itself — nobody mistakes the console for an inbox."""
@@ -69,12 +83,12 @@ class SmtpMail:
                "to sign an account in.\r\n")
         if self.port == smtplib.SMTP_SSL_PORT:
             conn = smtplib.SMTP_SSL(self.host, self.port, timeout=15,
-                                    context=ssl.create_default_context())
+                                    context=_ssl_context())
         else:
             conn = smtplib.SMTP(self.host, self.port, timeout=15)
             conn.ehlo_or_helo_if_needed()
             try:
-                conn.starttls(context=ssl.create_default_context())
+                conn.starttls(context=_ssl_context())
             except smtplib.SMTPException as e:
                 raise RuntimeError(f"smtp starttls refused: {e}")
         try:

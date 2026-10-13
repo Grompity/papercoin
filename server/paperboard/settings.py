@@ -28,6 +28,7 @@ class Settings:
             self.raw = json.load(fh)
 
         self.port = int(_env("PAPER_PORT", "5199"))
+        self.host = _env("PAPER_HOST", "0.0.0.0")       # bind addr; 127.0.0.1 = loopback for local testing
         self.db_path = _env("PAPER_DB_PATH", os.path.join(SERVER_DIR, "paperboard.sqlite3"))
         self.admin_token = _env("PAPER_ADMIN_TOKEN")          # None until provided
         # the account-era admin gate (pb-v3): an allowlist of emails, comma
@@ -81,6 +82,13 @@ class Settings:
         # the server is absolute, built from what the browser will see.
         self.public_base = _env("PAPER_PUBLIC_BASE_URL", f"http://localhost:{self.port}")
 
+        # P6C.16: the magic 302's landing origin is its own decision — the
+        # emailed link rides public_base, the board may live elsewhere. An
+        # empty value keeps today's relative redirect; anything invalid or
+        # unexpected fails CLOSED to it. Never request-derived, never user-fed.
+        self.frontend_base = _env("PAPER_FRONTEND_BASE_URL", "")
+        self.frontend_hosts = ("papercoin.vercel.app",)   # exact allowlist
+
         # email provider: mock (default) or smtp — the real one needs the env,
         # it never silently degrades to the mock (see mail.make_mailer).
         self.email_provider = _env("PAPER_EMAIL_PROVIDER", "mock")
@@ -95,6 +103,19 @@ class Settings:
     @property
     def pb(self):
         return self.raw["paperboard"]
+
+    def magic_landing(self):
+        """Where the magic 302 points: the validated, exact-allowlisted
+        frontend origin when configured — otherwise the safe relative board.
+        HTTPS-only; no credentials, ports, paths, or queries sneak through."""
+        base = (self.frontend_base or "").strip()
+        if not base:
+            return "/#board"
+        host = base[len("https://"):] if base.startswith("https://") else ""
+        if (host in self.frontend_hosts
+                and not any(bad in host for bad in "@/:?#")):
+            return base + "/#board"
+        return "/#board"
 
     def public_view(self):
         """Everything the frontend may see. No secrets, no credential-shaped surprises."""

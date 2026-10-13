@@ -5,12 +5,13 @@ client never has to (and never gets to) decide what a score means.
 """
 
 import json
+import sqlite3
 import threading
 import time
 from datetime import date as _date, datetime as _dt, time as _time
 
 from .accounts import (hash_magic_token, new_magic_token, normalize_email,
-                       normalize_username, parse_post_url)
+                       normalize_handle, normalize_username, parse_post_url)
 from .eligibility import Eligibility, normalize_wallet
 from .mail import make_mailer
 from .prizes import estimate, tier_for
@@ -41,6 +42,7 @@ class Service:
         self.budget_cfg = dict(cfg.get("budget", {}))
         self.costs = dict(cfg.get("apiCosts", {}))
         self.acfg = dict(cfg.get("account", {}))
+        self.xcfg = dict(cfg.get("xVerify", {}))
         self.payout = dict(cfg.get("payout", {}))     # friday rhythm, phase 1 (test clothes)
         self.mail = make_mailer(settings)            # provider boundary, mock by default
         self._inflight = set()
@@ -223,7 +225,16 @@ class Service:
         import secrets
         token = secrets.token_hex(24)
         t = now()
-        days = float(self.acfg.get("sessionDays", 30))
+        days = float(self.acfg.get("sessionDays", 7))
+        # housekeeping rides the login instant (no scheduler needed): dead
+        # sessions are gone by their own expiry, and magic rows retire a day
+        # after they were spent or died — the ledger stays small on purpose.
+        self.db.conn.execute(
+            "DELETE FROM sessions WHERE expires_at IS NOT NULL AND expires_at<?",
+            (t,))
+        self.db.conn.execute(
+            "DELETE FROM magic_links WHERE (used_at IS NOT NULL AND used_at<?)"
+            " OR expires_at<?", (t - 86400, t - 86400))
         self.db.conn.execute(
             "INSERT INTO sessions(token,account_id,created_at,expires_at,"
             "last_seen_at) VALUES(?,?,?,?,?)",
@@ -252,7 +263,7 @@ class Service:
         account = self.account_by_id(row["account_id"])
         if account is None or account["status"] != "active":
             return None, None                       # closed account: no ghost seat
-        days = float(self.acfg.get("sessionDays", 30))
+        days = float(self.acfg.get("sessionDays", 7))
         expires = row["expires_at"] or (t + days * 86400)
         if expires - t < days * 86400 / 2:          # slide, don't spam writes
             expires = t + days * 86400
@@ -269,10 +280,13 @@ class Service:
             self.db.conn.commit()
 
     # ---------------------------------------------------- onboarding + wallet
-    def onboard_account(self, account, username, wallet, at=None):
-        """The first-completion gate: a byline and the reward address, both
-        server-validated. No signature is ever asked for — an address, not
-        a permission."""
+    def onboard_account(self, account, username, wallet, xhandle=None,
+                        at=None):
+        """The first-completion gate: a byline, the reward address, and the
+        claimed X handle, all server-validated. No signature is ever asked
+        for — an address, not a permission. The handle arrives as a claim
+        only: it becomes proof at verify_x, and it stays optional here so
+        every pre-verification onboarding still rides the old shape."""
         t = now() if at is None else float(at)
         name = normalize_username(username)
         if name is None:
@@ -285,10 +299,21 @@ class Service:
         addr = normalize_wallet(wallet or "")
         if addr is None:
             return "invalid_solana_address"
+        claim = None
+        if xhandle is not None and str(xhandle).strip() != "":
+            claim = normalize_handle(xhandle)
+            if claim is None:
+                return "bad_x_handle"
+            held = self.db.conn.execute(
+                "SELECT id FROM accounts WHERE x_handle=? AND id<>?",
+                (claim, account["id"])).fetchone()
+            if held:
+                return "x_handle_taken"
         self.db.conn.execute(
             "UPDATE accounts SET username=?, wallet=?, wallet_effective_at=?,"
-            " onboarded_at=?, updated_at=? WHERE id=?",
-            (name, addr, t, t, t, account["id"]))
+            " onboarded_at=?, updated_at=?, x_handle=COALESCE(?, x_handle)"
+            " WHERE id=?",
+            (name, addr, t, t, t, claim, account["id"]))
         self.db.conn.execute(
             "INSERT INTO wallet_audit(account_id,old_wallet,new_wallet,changed_at,"
             "effective_at) VALUES(?,?,?,?,?)", (account["id"], None, addr, t, t))
@@ -321,6 +346,101 @@ class Service:
         self.db.conn.commit()
         return addr, None
 
+    # ------------------------------------------------------ x ownership proof
+    def verify_x(self, account, raw_url, claimed_handle=None):
+        """A public post is the deed: it must exist, the server must name its
+        author as the claimed handle, and its wording must tag @paperusdc and
+        announce the join. The stable id rides along when the provider can
+        vouch for one (fxtwitter answers; oembed is deliberately byline-only —
+        presence without an id is honest evidence, just thinner). Every cheap
+        wall speaks BEFORE the wire; the write is one transaction; a failure
+        leaves no half-verified account behind."""
+        parsed = parse_post_url(raw_url)
+        if parsed is None:
+            return dict(ok=False, reason="bad_post_url")
+        post_id, pasted_byline, _url = parsed
+        claim = (normalize_handle(claimed_handle)
+                 if claimed_handle else
+                 (normalize_handle(account.get("x_handle")) or pasted_byline))
+        if claim is None:
+            return dict(ok=False, reason="bad_x_handle")
+        mine = self.db.conn.execute(
+            "SELECT post_id FROM x_verifications WHERE account_id=?",
+            (account["id"],)).fetchone()
+        if mine:
+            if mine["post_id"] == post_id:
+                return dict(ok=True, reason="already_verified", post_id=post_id,
+                            x_handle=claim,
+                            x_user_id=account.get("x_user_id"))
+            return dict(ok=False, reason="verification_exists")
+        used = self.db.conn.execute(
+            "SELECT account_id FROM x_verifications WHERE post_id=?"
+            " AND account_id<>?", (post_id, account["id"])).fetchone()
+        if used:
+            return dict(ok=False, reason="verification_post_used")
+        held = self.db.conn.execute(
+            "SELECT id FROM accounts WHERE x_handle=? AND id<>?",
+            (claim, account["id"])).fetchone()
+        if held:
+            return dict(ok=False, reason="x_handle_taken")
+        try:
+            post = self.x.resolve_post(post_id, raw_url)
+        except XPostGone:
+            return dict(ok=False, reason="post_not_found")
+        except XError as e:
+            return dict(ok=False, reason="provider_unavailable", detail=str(e))
+        if post is None:
+            return dict(ok=False, reason="post_not_found")
+        author = (post.get("author") or "").lower()
+        if not author:
+            return dict(ok=False, reason="provider_unavailable",
+                        detail="no author")
+        author_id = post.get("author_id")
+        same_person = (author_id is not None
+                       and account.get("x_user_id") is not None
+                       and str(author_id) == str(account["x_user_id"]))
+        if author != claim and not same_person:
+            # a byline can drift; the stable id cannot. the claim rides the
+            # truth the server just measured — and an id that matches lets a
+            # renamed handle through (usernames are not forever; the id is).
+            return dict(ok=False, reason="author_mismatch",
+                        detail=f"server says @{author}")
+        text = (post.get("text") or "").lower()
+        mention = str(self.xcfg.get("mention", "@paperusdc")).lower()
+        announce = str(self.xcfg.get("announce", "paperboard")).lower()
+        says_join = any(w in text for w in
+                        [str(w).lower() for w in
+                         self.xcfg.get("joinWords", [])])
+        if mention not in text or announce not in text or not says_join:
+            return dict(ok=False, reason="verify_wording")
+        if author_id is None:
+            # a byline without a stable id is a witness, not an identity: the
+            # presence-only lane (oembed) may confirm the handle and the words,
+            # but it cannot bind the person. the account waits PENDING — no
+            # state is written, no verified instant burns — until a lane with
+            # an id (or a re-try) supplies adequate ownership evidence.
+            return dict(ok=False, reason="verification_pending")
+        t = now()
+        try:
+            self.db.conn.execute(
+                "UPDATE accounts SET x_handle=?, x_user_id=?, x_verified_at=?,"
+                " updated_at=? WHERE id=?",
+                (claim, author_id, t, t, account["id"]))
+            self.db.conn.execute(
+                "INSERT INTO x_verifications(post_id,account_id,x_user_id,"
+                "author_handle,verified_at) VALUES(?,?,?,?,?)",
+                (post_id, account["id"], author_id, author, t))
+            self.db.conn.commit()
+        except sqlite3.IntegrityError:
+            self.db.conn.rollback()
+            race = self.db.conn.execute(
+                "SELECT 1 FROM x_verifications WHERE post_id=?",
+                (post_id,)).fetchone()
+            return dict(ok=False, reason="verification_post_used" if race
+                         else "x_handle_taken")
+        return dict(ok=True, reason="verified", post_id=post_id,
+                    x_handle=claim, x_user_id=author_id)
+
     # ------------------------------------------------------------- submission
     def submit_post(self, account, raw_url, competition_id, at=None):
         """The paste-the-URL pipeline: parse → provider resolve → duplicate
@@ -333,6 +453,11 @@ class Service:
         if parsed is None:
             return dict(ok=False, reason="bad_post_url")
         post_id, _pasted_byline, fallback_url = parsed
+        # the scoring door (P6D): only a VERIFIED X account can score at all.
+        # the wall speaks before the wire — an unverified account spends no
+        # provider calls on a post that cannot earn.
+        if account.get("x_verified_at") is None:
+            return dict(ok=False, reason="not_verified")
         midnight = _dt.combine(_date.today(), _time.min).timestamp()
         cap = float(self.acfg.get("maxSubmissionsPerDay", 30))
         today = self.db.conn.execute(
@@ -358,6 +483,17 @@ class Service:
         if post is None:
             return dict(ok=False, reason="post_not_found")
         handle = (post.get("author") or "").lower()
+        # the author law (P6D): a verified account earns points on its OWN
+        # posts. the match rides the stable id when the provider has one for
+        # both sides (a renamed byline is the same person); otherwise the
+        # handles must agree. the wall speaks before any row is written.
+        claim = (account.get("x_handle") or "").lower()
+        post_xid = post.get("author_id")
+        same_person = (post_xid is not None
+                       and account.get("x_user_id") is not None
+                       and str(post_xid) == str(account["x_user_id"]))
+        if not (same_person or (handle and handle == claim)):
+            return dict(ok=False, reason="wrong_author")
         url = post.get("url") or fallback_url
         if not handle:
             url = fallback_url
@@ -613,6 +749,9 @@ class Service:
                          username=account["username"], status=account["status"],
                          wallet=account["wallet"],
                          wallet_effective_at=account["wallet_effective_at"],
+                         x_handle=account["x_handle"],
+                         x_user_id=account["x_user_id"],
+                         x_verified=account["x_verified_at"] is not None,
                          onboarded=account["onboarded_at"] is not None,
                          created_at=account["created_at"],
                          last_login_at=account["last_login_at"]),

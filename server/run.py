@@ -9,6 +9,7 @@ populated front page without X credentials. It is always flagged (mode:"mock").
 """
 
 import json
+import re
 import sys
 import threading
 import time
@@ -21,6 +22,9 @@ from paperboard import db as dbmod, http_app, service as svc  # noqa: E402
 from paperboard.settings import Settings                      # noqa: E402
 from paperboard.xapi import (MockXClient, FXTwitterXClient,
                              OembedXClient, FallbackXClient)             # noqa: E402
+
+
+TOKEN_IN_LOG = re.compile(r"token=[A-Z0-9]{8,}")   # redact at write time (P6C.16)
 
 
 def make_provider(settings):
@@ -70,7 +74,7 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
-        print("[pb]", fmt % args)
+        print("[pb]", TOKEN_IN_LOG.sub("token=<t>", fmt % args))
 
     def _go(self, method):
         parsed = urllib.parse.urlparse(self.path)
@@ -109,7 +113,7 @@ class Handler(BaseHTTPRequestHandler):
             if getattr(router.settings, "secure_cookies", False):
                 flags += "; Secure"
             if payload.get("session"):
-                days = int(router.s.acfg.get("sessionDays", 30))
+                days = int(router.s.acfg.get("sessionDays", 7))
                 self.send_header("Set-Cookie",
                                  f"PBSD={payload['session']}; {flags};"
                                  f" Max-Age={days * 86400}")
@@ -180,7 +184,7 @@ def main():
             or "FxEmbed first, oEmbed behind (zero-cost, no keys)")
     print(f"[paperboard] :{settings.port}  mode={settings.mock and 'mock' or 'live'}"
           f"  provider: {prov}  ({settings.mock_reason})")
-    httpd = ThreadingHTTPServer(("0.0.0.0", settings.port), Handler)
+    httpd = ThreadingHTTPServer((settings.host, settings.port), Handler)
     httpd.router = router
     if settings.scheduler and svc_.active_competition():
         sch = Scheduler(svc_, cid, settings)

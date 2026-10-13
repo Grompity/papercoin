@@ -16,18 +16,17 @@ export function Hero() {
         </div>
 
         <h1 class="hero__title" data-reveal>
-          the internet's most <span class="g">overqualified</span> dollar&nbsp;bill.
+          every post <span class="g">counts.</span>
         </h1>
 
         <p class="hero__sub" data-reveal>
-          <b>${cfg.ticker}</b> is a memecoin on Solana — post about it on X,
-          the server prints points, points move you up the <b>Paperboard</b>.
+          track your contributions. earn points. climb the board.
         </p>
 
         <div class="hero__actions" data-reveal>
           <a class="btn btn--solid" href="#board" data-hero-connect>Join PAPERBOARD ↓</a>
           <a class="btn btn--pill" href="#buy">Buy ${cfg.ticker}</a>
-          <a class="btn btn--pill" href="#frontpage">PAPERBOARD ↓</a>
+          <a class="btn btn--pill" href="#frontpage">The front page</a>
         </div>
 
         <div class="hero__art" data-reveal data-parallax data-parallax-depth="0.55">

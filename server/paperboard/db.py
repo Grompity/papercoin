@@ -109,7 +109,11 @@ CREATE TABLE IF NOT EXISTS oauth_states (
 
 -- accounts: the permanent PAPERBOARD identity. the account id is the parent
 -- of submissions, scores, leaderboard records, and the reward ledger.
--- x identity lives in the posts/submissions row (author_handle), never here.
+-- (P6D) an account's X identity lives here as a CLAIM (x_handle), a stable
+-- id when a provider can vouch for one (x_user_id), and the verified instant
+-- (x_verified_at — NULL is the gate that says 'cannot score yet'). the
+-- submissions row keeps its own author_handle: the per-post truth, told
+-- apart from the account's identity on purpose.
 CREATE TABLE IF NOT EXISTS accounts (
   id                  INTEGER PRIMARY KEY,
   email               TEXT UNIQUE NOT NULL,
@@ -121,7 +125,10 @@ CREATE TABLE IF NOT EXISTS accounts (
   onboarded_at        REAL,
   created_at          REAL NOT NULL,
   updated_at          REAL NOT NULL,
-  last_login_at       REAL
+  last_login_at       REAL,
+  x_handle            TEXT,
+  x_user_id           TEXT,
+  x_verified_at       REAL
 );
 
 -- magic links: short-lived single-use auth tokens. the sha256 hash is the
@@ -133,6 +140,21 @@ CREATE TABLE IF NOT EXISTS magic_links (
   created_at   REAL NOT NULL,
   expires_at   REAL NOT NULL,
   used_at      REAL,
+  FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+
+-- x_verifications (P6D): a post is an OWNERSHIP proof exactly once. the post
+-- id is primary (one proof, one use), the account is UNIQUE (one proof per
+-- account). the accounts table indexes the claim (x_handle — the one-identity
+-- promise is kept by the service's check before every verify) and the stable
+-- id (x_user_id — UNIQUE where the provider reported one: one person, one
+-- account, wall-and-all).
+CREATE TABLE IF NOT EXISTS x_verifications (
+  post_id       TEXT PRIMARY KEY,
+  account_id    INTEGER UNIQUE NOT NULL,
+  x_user_id     TEXT,
+  author_handle TEXT NOT NULL,
+  verified_at   REAL NOT NULL,
   FOREIGN KEY (account_id) REFERENCES accounts(id)
 );
 
@@ -330,10 +352,27 @@ def _migrate(conn):
             ("submissions", "like_status", "TEXT"),
             ("submissions", "official_likes", "INTEGER"),
             ("submissions", "like_measured_at", "REAL"),
-            ("submissions", "like_source", "TEXT")):
-        if table in {"users", "posts", "scans", "sessions", "submissions"} \
+            ("submissions", "like_source", "TEXT"),
+            # P6D — a verified X identity rides the account row: the claimed
+            # handle, the stable id when a provider can vouch for one, and
+            # the instant verification happened (NULL = cannot score yet).
+            ("accounts", "x_handle", "TEXT"),
+            ("accounts", "x_user_id", "TEXT"),
+            ("accounts", "x_verified_at", "REAL")):
+        if table in {"users", "posts", "scans", "sessions", "submissions",
+                     "accounts"} \
                 and col not in cols(table):
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+    # (P6D.2) the two accounts-x indexes deliberately live HERE, not in
+    # SCHEMA: a legacy accounts table has no x_* columns until the loop above
+    # adds them, and CREATE INDEX resolves its column list at once — in
+    # SCHEMA they died 'no such column' on any prod-shaped database.
+    # IF NOT EXISTS keeps both roads idempotent: fresh databases (the table
+    # born with the columns) and upgraded ones land on the same index set.
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_accounts_xhandle"
+                 " ON accounts(x_handle)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_accounts_xid"
+                 " ON accounts(x_user_id)")
     # one real migration for pre-account databases: the X-era sessions table
     # declared user_id NOT NULL; an account seat needs it NULL. Rebuild, copy,
     # rename — the data rides along, nothing is destroyed.

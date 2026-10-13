@@ -10,6 +10,7 @@ dispatch, no sockets). Exit code is the failure count.
 
 import json                                      # noqa: E402
 import os
+import ssl
 import sys
 import time
 
@@ -25,6 +26,7 @@ from paperboard.xapi import (MockXClient, SyndicationXClient, XError,
                              FXTwitterXClient, OembedXClient,
                              FallbackXClient, XRatelimited)             # noqa: E402
 from paperboard import xapi as xapimod                                  # noqa: E402
+from paperboard import mail as mailmod                                  # noqa: E402
 
 CA = "E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk"
 FAILURES = []
@@ -212,6 +214,9 @@ def main():
 
     # ------------------------------------------------------ eligibility truth
     st, database, x, s, cid = make_env()
+    ixpb = {r[1] for r in database.conn.execute("PRAGMA index_list(accounts)")}
+    check("schema: fresh init creates both accounts-x indexes (xhandle + xid)",
+          {"ix_accounts_xhandle", "ix_accounts_xid"} <= ixpb, str(sorted(ixpb)))
     el = s.elig
     cases = [
         (f"look at {CA} today", True, "ok"),            # CA only
@@ -588,6 +593,51 @@ def main():
     check("auth: an unknown token answers before any account lookup",
           stt == 401 and payload.get("error") == "bad_link")
 
+    # ---- P6C.16: a separate, strict landing origin; token-hygiene logs ----
+    import io as _io, contextlib as _ctx, run as runmod
+    _ls = r.settings                                    # the battery's settings
+    check("P6C land: an unset frontend base keeps the relative board",
+          _ls.magic_landing() == "/#board", _ls.magic_landing())
+    _ls.frontend_base = "https://papercoin.vercel.app"
+    check("P6C land: a valid base points at the frontend board",
+          _ls.magic_landing() == "https://papercoin.vercel.app/#board",
+          _ls.magic_landing())
+    _bad = ("http://papercoin.vercel.app", "https://wrong.example",
+            "https://papercoin.vercel.app/", "https://papercoin.vercel.app?x=1",
+            "https://user@papercoin.vercel.app", "https://papercoin.vercel.app:8443")
+    check("P6C land: every invalid shape fails closed to the relative board",
+          all((setattr(_ls, "frontend_base", _b), _ls.magic_landing() == "/#board")[1]
+              for _b in _bad))
+    _ls.frontend_base = ""
+    _box = []
+    _saved = r.s.mail.send_magic_link
+    r.s.mail.send_magic_link = lambda to, url: (_box.append(url), True)[1]
+    try:
+        _ls.frontend_base = "https://papercoin.vercel.app"
+        stt, payload = go("POST", "/api/account/start", body={"email": "lander@paper.io"})
+        _tokL = magic_from(payload or {})
+        check("P6C land: the emailed link still rides the API base",
+              bool(_box) and _box[0] == _ls.public_base
+              + f"/api/auth/magic?token={_tokL}", str(_box)[:80])
+        _outF = r.dispatch("GET", "/api/auth/magic", {"token": _tokL}, {}, {}, None)
+        check("P6C land: a real valid login lands on the frontend board",
+              _outF[0] == 302 and _outF[2].get("Location")
+              == "https://papercoin.vercel.app/#board", str(_outF)[:80])
+        _outX = r.dispatch("GET", "/api/auth/magic", {"token": "nonsense"}, {}, {}, None)
+        check("P6C land: refusals answer 401 without minting a cookie",
+              _outX[0] == 401 and not (_outX[2] or {}).get("Set-Cookie"), str(_outX)[:80])
+    finally:
+        r.s.mail.send_magic_link = _saved
+        _ls.frontend_base = ""
+    _buf = _io.StringIO()
+    with _ctx.redirect_stdout(_buf):
+        runmod.Handler.log_message(
+            None, '"GET /api/auth/magic?token=ABCDEF0123456789 HTTP/1.1" - - 302 21')
+    _line = _buf.getvalue()
+    check("P6C logs: the raw magic token never reaches the access log",
+          "[pb]" in _line and "token=<t>" in _line and "ABCDEF0123456789" not in _line
+          and "/api/auth/magic" in _line and "302" in _line, _line[:90])
+
     stt, payload = go("GET", "/api/account")
     check("acct: the dashboard is 401 for the seatless (no IDOR door)",
           stt == 401 and payload.get("error") == "not_authenticated")
@@ -617,6 +667,12 @@ def main():
     stt, payload = go("GET", "/api/account/submissions", cookies=ck)
     check("acct: the submissions ledger starts empty",
           stt == 200 and payload.get("submissions") == [])
+    # the author law (P6D): a verified account scores its OWN posts. this
+    # lane's account rides the degenledger claim so its m2 post is its own.
+    database.conn.execute(
+        "UPDATE accounts SET x_verified_at=?, x_handle='degenledger',"
+        " x_user_id='77' WHERE username='grompity'", (time.time(),))
+    database.conn.commit()
 
     stt, payload = go("POST", "/api/account/posts", cookies=ck,
                       headers=JSONISH, body={"url": "hello"})
@@ -643,8 +699,15 @@ def main():
           and payload.get("owner") == "self")
     stt, payload = go("POST", "/api/account/posts", cookies=ck, headers=JSONISH,
                       body={"url": "https://x.com/chartwitch/status/m3"})
-    check("submit: identity rule — you may submit posts by OTHER handles",
-          stt == 200 and (payload.get("submission") or {}).get("author") == "chartwitch")
+    check("submit: the author law — a post by ANOTHER handle cannot score for"
+          " you (wrong_author, no row)",
+          stt == 403 and payload.get("error") == "wrong_author", f"{stt}")
+    # the law rides the account's own claim, so the claim follows the account
+    # for the bidetbear post below (a rename the server accepts: the handle is
+    # a claim the owner controls; the stable id is the person).
+    database.conn.execute("UPDATE accounts SET x_handle='bidetbear',"
+                          " x_user_id=NULL WHERE username='grompity'")
+    database.conn.commit()
     stt, payload = go("POST", "/api/account/posts", cookies=ck, headers=JSONISH,
                       body={"url": "https://x.com/bidetbear/status/m8"})
     sub8 = (payload or {}).get("submission") or {}
@@ -657,7 +720,7 @@ def main():
     stt, payload = go("GET", "/api/account/submissions", cookies=ck)
     subs = (payload or {}).get("submissions") or []
     check("acct: the owner's ledger shows exactly my posts (auth rides the account id)",
-          stt == 200 and len(subs) == 3 and all("audit" in row0 for row0 in subs),
+          stt == 200 and len(subs) == 2 and all("audit" in row0 for row0 in subs),
           str(len(subs)))
 
     # ------------------------- public board: the live ledger rules it ---------
@@ -720,6 +783,9 @@ def main():
     outb = r.dispatch("GET", "/api/auth/magic", {"token": tokb}, {}, {}, None)
     seatb = outb[2]["Set-Cookie"].split("PBSD=")[1].split(";")[0]
     ckb = {"PBSD": seatb}
+    database.conn.execute("UPDATE accounts SET x_verified_at=?, x_handle='anyone'"
+                          " WHERE lower(email)='b@paper.io'", (time.time(),))
+    database.conn.commit()
     stt, payload = go("POST", "/api/account/posts", cookies=ckb, headers=JSONISH,
                       body={"url": "https://x.com/degenledger/status/m2"})
     check("submit: the duplicate wall is per-issue, not per-account (owner other)",
@@ -845,6 +911,10 @@ def main():
           and sS.create_or_touch_account("nope@nope@nope")[2] == "invalid_email")
     tokS, _mailed = sS.issue_magic_link(accS["id"])
     signed, why = sS.consume_magic_link(tokS)
+    dS.conn.execute("UPDATE accounts SET x_verified_at=?, x_handle='shy'"
+                    " WHERE id=?", (time.time(), accS["id"]))
+    dS.conn.commit()
+    signed = sS.account_by_id(accS["id"])
     resS = sS.submit_post(signed, "https://x.com/shy/status/777777777", cidS)
     subS = resS.get("submission") or {}
     check("syndication: only metrics the provider really reports are scored",
@@ -858,6 +928,10 @@ def main():
     sD3.eligcfg["followRequired"] = True         # the optional-strict mode pin
     accD3, _cre, _er = sD3.create_or_touch_account("defer@paper.io")
     signedD3, _why = sD3.consume_magic_link(sD3.issue_magic_link(accD3["id"])[0])
+    dD3.conn.execute("UPDATE accounts SET x_verified_at=?, x_handle='shy'"
+                     " WHERE id=?", (time.time(), accD3["id"]))
+    dD3.conn.commit()
+    signedD3 = sD3.account_by_id(accD3["id"])
     resD3 = sD3.submit_post(signedD3, "https://x.com/shy/status/777777777", cidD3)
     subD3 = resD3.get("submission") or {}
     rowD3 = dD3.conn.execute("SELECT score_json FROM submissions LIMIT 1").fetchone()
@@ -891,6 +965,10 @@ def main():
     _stB3, _dB3, sB3, cidB3 = make_env2("BLIND", bx)
     accB3, _cre, _er = sB3.create_or_touch_account("blind@paper.io")
     signedB3, _why = sB3.consume_magic_link(sB3.issue_magic_link(accB3["id"])[0])
+    _dB3.conn.execute("UPDATE accounts SET x_verified_at=?, x_handle='quiet'"
+                      " WHERE id=?", (time.time(), accB3["id"]))
+    _dB3.conn.commit()
+    signedB3 = sB3.account_by_id(accB3["id"])
     resB3 = sB3.submit_post(signedB3, "https://x.com/quiet/status/555", cidB3)
     check("submit: a metrics-blind provider still verifies presence (base points ride)",
           resB3.get("ok") and (resB3.get("submission") or {}).get("points")
@@ -900,6 +978,10 @@ def main():
     _stB4, _dB4, sB4, cidB4 = make_env2("BOOM", BoomX())
     accB4, _cre, _er = sB4.create_or_touch_account("boom@paper.io")
     signedB4, _why = sB4.consume_magic_link(sB4.issue_magic_link(accB4["id"])[0])
+    _dB4.conn.execute("UPDATE accounts SET x_verified_at=?, x_handle='boom'"
+                      " WHERE id=?", (time.time(), accB4["id"]))
+    _dB4.conn.commit()
+    signedB4 = sB4.account_by_id(accB4["id"])
     resB4 = sB4.submit_post(signedB4, "https://x.com/quiet/status/555", cidB4)
     check("submit: provider failure produces no row, no points (fail closed)",
           not resB4.get("ok") and resB4.get("reason") == "provider_unavailable"
@@ -1010,6 +1092,15 @@ def main():
         acc2, _cr2, _er2 = sK.create_or_touch_account("stack2@paper.io")
         signed2, _w2 = sK.consume_magic_link(
             sK.issue_magic_link(acc2["id"])[0])
+        sK.db.conn.execute(
+            "UPDATE accounts SET x_verified_at=?, x_handle='paperusdc',"
+            " x_user_id='4242' WHERE id=?", (time.time(), accK["id"]))
+        sK.db.conn.execute(
+            "UPDATE accounts SET x_verified_at=?, x_handle='paperusdc2'"
+            " WHERE id=?", (time.time(), acc2["id"]))
+        sK.db.conn.commit()
+        signedK = sK.account_by_id(accK["id"])    # re-read: the gate reads rows
+        signed2 = sK.account_by_id(acc2["id"])
         cnt0 = dict(counters)                    # where the clock of calls stands
 
         xapimod.urllib.request.urlopen = stub(
@@ -1194,6 +1285,10 @@ def main():
         sN.eligcfg["followRequired"] = True
         accN, _cn, _en = sN.create_or_touch_account("flag@paper.io")
         signedN, _w = sN.consume_magic_link(sN.issue_magic_link(accN["id"])[0])
+        sN.db.conn.execute("UPDATE accounts SET x_verified_at=?, x_handle='shy'"
+                           " WHERE id=?", (time.time(), accN["id"]))
+        sN.db.conn.commit()
+        signedN = sN.account_by_id(accN["id"])
         resN = sN.submit_post(signedN, "https://x.com/shy/status/777777777", cidN)
         subN = resN.get("submission") or {}
         check("rules: when a deployment still wants the follow gate, the flag"
@@ -1229,6 +1324,15 @@ def main():
 
     mc1, mc0, mcD = mode_case("1"), mode_case("0"), mode_case(None)
     mcT, mcN, mcX = mode_case("true"), mode_case("NO"), mode_case("sideways")
+
+    saved_host_env = os.environ.pop("PAPER_HOST", None)         # absent on this box
+
+    def host_case(value):                                       # bind-address knob
+        if value is None:
+            os.environ.pop("PAPER_HOST", None)
+        else:
+            os.environ["PAPER_HOST"] = value
+        return Settings().host
 
     try:
         check("mode: PAPER_MOCK=1 opts INTO the mock demo — and the config"
@@ -1270,6 +1374,16 @@ def main():
             if env_val is not None:
                 os.environ[env_name] = env_val
 
+    hcD, hcL = host_case(None), host_case("127.0.0.1")
+    check("bind: PAPER_HOST unset defaults to 0.0.0.0 — the historic wide"
+          " bind stays the backwards-compatible truth", hcD == "0.0.0.0")
+    check("bind: PAPER_HOST=127.0.0.1 lands in Settings.host verbatim —"
+          " the loopback lane for local testing", hcL == "127.0.0.1")
+    if saved_host_env is not None:
+        os.environ["PAPER_HOST"] = saved_host_env
+    else:
+        os.environ.pop("PAPER_HOST", None)
+
     # ================= pb-v3.0: hybrid like scoring + secure manual review ====
     # (battery notes: this file's own text travels through the display layer
     # case-folded, but the bytes on disk are what run — these checks talk to
@@ -1279,6 +1393,10 @@ def main():
     stV.admset = set(["root@paper.io"])          # the gate is a server truth
     accP, _cV1, _eV1 = sV.create_or_touch_account("user@paper.io")
     signedP, _whyV = sV.consume_magic_link(sV.issue_magic_link(accP["id"])[0])
+    sV.db.conn.execute("UPDATE accounts SET x_verified_at=?, x_handle='quiet'"
+                       " WHERE id=?", (time.time(), accP["id"]))
+    sV.db.conn.commit()
+    signedP = sV.account_by_id(accP["id"])
 
     def seat_for(email):
         accX = sV.create_or_touch_account(email)[0]
@@ -1525,8 +1643,15 @@ def main():
         idsW[nm] = accW["id"]
         sW.onboard_account(sW.consume_magic_link(sW.issue_magic_link(accW["id"])[0])[0],
                            "pay" + nm.lower(), MINTW[:-1] + nm.lower())
+    # the payout fable is a STANDS-AND-FATES test, not a scoring test — the
+    # nine seats ride verified claims so the author law is silent here (the
+    # points that make the fable run stay exactly where the fable put them).
+    dW = sW.db.conn
+    dW.execute("UPDATE accounts SET x_verified_at=?, x_handle='quiet'"
+               " WHERE x_handle IS NULL", (time.time(),))
+    dW.commit()
     def post_pay(nm, url, likes):
-        sig = sW.consume_magic_link(sW.issue_magic_link(idsW[nm])[0])[0]
+        sig = sW.account_by_id(idsW[nm])          # fresh row: the gate reads rows
         sW.submit_post(sig, url, cidW)
         sid = dbW.conn.execute("SELECT id FROM submissions WHERE account_id=?"
                                " ORDER BY id DESC LIMIT 1",
@@ -1762,6 +1887,308 @@ def main():
           js.count("S.booting") >= 3, "guard@%s" % js.find("S.booting"))
     check("pb front: the error pane ships with a truthful heading and a retry path",
           "hit a snag" in html and 'data-action="rescan"' in html, "pane ready")
+
+    # ===== mail trust store: the framework ships an empty OpenSSL store (2026-10) ==
+    # the field record: this interpreter's create_default_context() verifies
+    # NOTHING (store counts zero, documented default paths point nowhere), and
+    # pointing the context at the macOS system anchor bundle is what makes a
+    # verified, hostname-checked handshake to smtp.resend.com:465 possible at
+    # all. these pins run in-process: no sockets, no login, no real mail.
+    ctxM = mailmod._ssl_context()
+    stM = ctxM.cert_store_stats()
+    check("mail tls: the shared context loads the system anchor bundle — the"
+          " framework default store is empty and this load is the difference",
+          isinstance(stM, dict) and stM.get("x509_ca", 0) >= 1, str(stM)[:60])
+    check("mail tls: verification and hostname checking ride the context by"
+          " default — nothing here had to be turned on",
+          ctxM.verify_mode == ssl.CERT_REQUIRED and ctxM.check_hostname)
+    saved_bundle, mailmod.CA_BUNDLE = mailmod.CA_BUNDLE, "/nope/no-bundle.pem"
+    closed = False
+    try:
+        try:
+            mailmod._ssl_context()
+        except (OSError, RuntimeError, ssl.SSLError):
+            closed = True
+    finally:
+        mailmod.CA_BUNDLE = saved_bundle
+    check("mail tls: a missing bundle fails closed at context creation —"
+          " never a silently unverified send", closed)
+    class TrustyConn:
+        def ehlo_or_helo_if_needed(self): pass
+        def starttls(self, context=None): self.tls_context = context
+        def login(self, *a): pass
+        def sendmail(self, *a, **k): pass
+        def quit(self): pass
+    class MailCfg:
+        smtp = dict(host="smtp.test", port=465, user="u", password="p",
+                    **{"from": "pb@paper.io"})
+    mT = mailmod.SmtpMail(MailCfg())
+    saved_classes = (mailmod.smtplib.SMTP_SSL, mailmod.smtplib.SMTP)
+    handed, lane_conn = {}, TrustyConn()
+    try:
+        def fake_ssl_lane(*a, **k):
+            handed["implicit"] = k.get("context")
+            return TrustyConn()
+        mailmod.smtplib.SMTP_SSL = fake_ssl_lane
+        mailmod.smtplib.SMTP = lambda *a, **k: lane_conn
+        mT.send_magic_link("a@b.io", "http://x/?token=1")
+        ctxI = handed.get("implicit")
+        check("mail tls: the implicit-TLS lane (port 465) hands SMTP_SSL the"
+              " trust-bearing context",
+              isinstance(ctxI, ssl.SSLContext)
+              and ctxI.cert_store_stats().get("x509_ca", 0) >= 1, str(ctxI)[:40])
+        mT.port = 587                                      # the STARTTLS lane
+        mT.send_magic_link("a@b.io", "http://x/?token=2")
+        ctxS = getattr(lane_conn, "tls_context", None)
+        check("mail tls: the STARTTLS lane hands starttls the same"
+              " trust-bearing context",
+              isinstance(ctxS, ssl.SSLContext)
+              and ctxS.cert_store_stats().get("x509_ca", 0) >= 1, str(ctxS)[:40])
+    finally:
+        mailmod.smtplib.SMTP_SSL, mailmod.smtplib.SMTP = saved_classes
+
+    # ============ P6D: X ownership verification + a week-long account seat ==
+    # the verification lane rides the REAL stack adapters over stubbed wires,
+    # so every claim below is measured through the shipped parse code itself.
+    stY2, dY, sY, cidY = make_env2("XVER", FallbackXClient(
+        FXTwitterXClient(Settings()), OembedXClient(Settings())))
+    accY1, _c1Y, _e1Y = sY.create_or_touch_account("owner@paper.io")
+    signedY1, _w1Y = sY.consume_magic_link(sY.issue_magic_link(accY1["id"])[0])
+    accY2, _c2Y, _e2Y = sY.create_or_touch_account("second@paper.io")
+    signedY2, _w2Y = sY.consume_magic_link(sY.issue_magic_link(accY2["id"])[0])
+    accY3, _c3Y, _e3Y = sY.create_or_touch_account("third@paper.io")
+    signedY3, _w3Y = sY.consume_magic_link(sY.issue_magic_link(accY3["id"])[0])
+    accY4, _c4Y, _e4Y = sY.create_or_touch_account("fourth@paper.io")
+    signedY4, _w4Y = sY.consume_magic_link(sY.issue_magic_link(accY4["id"])[0])
+    rY = http_app.Router(sY, stY2, dY, sY.x)
+    JSONY = {"content-type": "application/json"}
+    EXAMPLE = ("I just signed up for PAPERBOARD, a new raiding platform by"
+               " @paperusdc where you get paid to raid!")
+
+    def seatY(account_row):
+        out = rY.dispatch("GET", "/api/auth/magic",
+                          {"token": sY.issue_magic_link(account_row["id"])[0]},
+                          {}, {}, None)
+        return out, {"PBSD": out[2]["Set-Cookie"].split("PBSD=")[1].split(";")[0]}
+
+    out1, ckY1 = seatY(accY1)
+    out4, ckY4 = seatY(accY4)
+    saved_urlopenY = xapimod.urllib.request.urlopen
+    try:
+        check("P6D: the shipped week — the magic 302's cookie Max-Age is"
+              " exactly 7 days and config.json agrees (sessionDays is one"
+              " knob with four honest readers)",
+              "Max-Age=604800" in out1[2]["Set-Cookie"]
+              and stY2.pb["account"]["sessionDays"] == 7, str(out1[2])[:80])
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: fx_body("9501", text=EXAMPLE) if who == "fx"
+            else oe_body("9501"))
+        counters["fx"] = counters["oe"] = 0
+        vy = sY.verify_x(signedY1, "https://x.com/paperusdc/status/9501")
+        rowY = sY.account_by_id(accY1["id"])
+        check("P6D verify: the example post binds handle + stable id +"
+              " verified-instant at once — one wire call, and the proof post"
+              " earned no submission row (it is evidence, not a raid)",
+              vy.get("ok") and vy.get("x_handle") == "paperusdc"
+              and vy.get("x_user_id") == "4242"
+              and rowY["x_verified_at"] is not None
+              and counters["fx"] == 1
+              and dY.conn.execute("SELECT COUNT(*) n FROM submissions"
+                                  ).fetchone()["n"] == 0, str(vy)[:140])
+        c0 = counters["fx"]
+        vy2 = sY.verify_x(signedY1, "https://x.com/paperusdc/status/9501")
+        check("P6D verify: re-presenting the same deed is idempotent and"
+              " speaks BEFORE the wire (a double-click costs no provider call)",
+              vy2.get("ok") and vy2.get("reason") == "already_verified"
+              and counters["fx"] == c0, str(vy2)[:90])
+        vy3 = sY.verify_x(signedY1, "https://x.com/paperusdc/status/9502")
+        check("P6D verify: one deed per account — a second post answers"
+              " verification_exists before any wire (409 material)",
+              vy3.get("reason") == "verification_exists"
+              and counters["fx"] == c0, str(vy3)[:90])
+        vy4 = sY.verify_x(signedY2, "https://x.com/second/status/9501")
+        check("P6D verify: one use per post — the same post cannot verify a"
+              " second account (verification_post_used, no wire spent)",
+              vy4.get("reason") == "verification_post_used"
+              and counters["fx"] == c0, str(vy4)[:90])
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: fx_body("9503") if who == "fx" else oe_body("9503"))
+        c1 = counters["fx"]
+        vy5 = sY.verify_x(signedY3, "https://x.com/ghost/status/9503", "ghost")
+        row3 = sY.account_by_id(accY3["id"])
+        check("P6D verify: a claimed handle the server cannot confirm answers"
+              " author_mismatch — the wire was spent but no half-verified"
+              " state was left behind",
+              vy5.get("reason") == "author_mismatch"
+              and counters["fx"] == c1 + 1 and row3["x_verified_at"] is None,
+              str(vy5)[:90])
+        vy6 = sY.verify_x(signedY3, "https://x.com/paperusdc/status/9503")
+        check("P6D verify: an identity already worn is claimed away BEFORE the"
+              " wire (x_handle_taken — one X identity, one account)",
+              vy6.get("reason") == "x_handle_taken"
+              and counters["fx"] == c1 + 1, str(vy6)[:90])
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: fx_body("9505",
+                                   text="pure vibes, no announcement, hi @paperusdc",
+                                   author=dict(screen_name="Second", id="4243"))
+            if who == "fx" else oe_body("9505", author="Second"))
+        vy7 = sY.verify_x(signedY2, "https://x.com/second/status/9505")
+        check("P6D verify: wording is law too — the deed must tag @paperusdc"
+              " AND announce the join (verify_wording leaves nothing"
+              " half-written)",
+              vy7.get("reason") == "verify_wording"
+              and sY.account_by_id(accY2["id"])["x_verified_at"] is None,
+              str(vy7)[:110])
+        xapimod.urllib.request.urlopen = stub(lambda u, who: XError("stub wire down"))
+        vy8 = sY.verify_x(signedY2, "https://x.com/second/status/9504")
+        check("P6D verify: provider trouble fails CLOSED — provider_unavailable"
+              " and no verified state at all (the account is no deader for"
+              " having tried)",
+              vy8.get("reason") == "provider_unavailable"
+              and sY.account_by_id(accY2["id"])["x_verified_at"] is None,
+              str(vy8)[:90])
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: XError("fx leg silent") if who == "fx"
+            else oe_body("9509", author="Second",
+                         html=f'<blockquote class="twitter-tweet"><p lang="en">{EXAMPLE}</p>'
+                              f'&mdash; Second (<a href="#">@Second</a>) <a href="#">'
+                              f"October 8, 2026</a></blockquote>"))
+        vyP = sY.verify_x(signedY2, "https://x.com/second/status/9509")
+        check("P6D verify: a presence-only witness is a WITNESS, not an"
+              " identity — when the fallback byline confirms the handle and"
+              " the wording but no stable id exists, verification PENDING:"
+              " the reason says pending, no verified instant burns, and no"
+              " completed x_verifications row is written for the proof"
+              " (6C.27 law: a byline never mints verification)",
+              vyP.get("reason") == "verification_pending"
+              and sY.account_by_id(accY2["id"])["x_verified_at"] is None
+              and dY.conn.execute("SELECT COUNT(*) n FROM x_verifications"
+                                  " WHERE post_id='9509'").fetchone()["n"]
+              == 0, str(vyP)[:110])
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: fx_body("9510", text=EXAMPLE,
+                                   author=dict(screen_name="Second", id="4243"))
+            if who == "fx" else oe_body("9510", author="Second"))
+        vy9 = sY.verify_x(signedY2, "https://x.com/second/status/9510")
+        check("P6D verify: the second account signs cleanly when author,"
+              " wording, and wire all agree — the URL byline is the claim,"
+              " the server's author is the truth",
+              vy9.get("ok") and vy9.get("x_handle") == "second"
+              and vy9.get("x_user_id") == "4243", str(vy9)[:110])
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: fx_body("9508",
+                                   author=dict(screen_name="Second", id="4243"))
+            if who == "fx" else oe_body("9508", author="Second"))
+        c2 = counters["fx"]
+        vy10 = sY.verify_x(signedY4, "https://x.com/second/status/9508")
+        check("P6D verify: one verified identity can not link a second"
+              " account — the fourth account's same-author deed answers"
+              " x_handle_taken before the wire",
+              vy10.get("reason") == "x_handle_taken" and counters["fx"] == c2,
+              str(vy10)[:90])
+        # — the submission gates, measured through submit_post —
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: fx_body("9507",
+                                   author=dict(screen_name="NotHim", id="9999"))
+            if who == "fx" else oe_body("9507", author="NotHim"))
+        subW = sY.submit_post(sY.account_by_id(accY1["id"]),
+                              "https://x.com/paperusdc/status/9507", cidY)
+        check("P6D submit: a post by ANOTHER author is rejected before any"
+              " row exists (wrong_author — no points for a borrowed post)",
+              subW.get("reason") == "wrong_author"
+              and dY.conn.execute("SELECT COUNT(*) n FROM submissions"
+                                  ).fetchone()["n"] == 0, str(subW)[:110])
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: fx_body("9506",
+                                   author=dict(screen_name="Renamed", id="4242"))
+            if who == "fx" else oe_body("9506", author="Renamed"))
+        subR = sY.submit_post(sY.account_by_id(accY1["id"]),
+                              "https://x.com/paperusdc/status/9506", cidY)
+        check("P6D submit: a RENAMED byline still scores when the stable id"
+              " matches (usernames are not forever — the id is; the author"
+              " law rides the id where the provider has one)",
+              subR.get("ok")
+              and (subR.get("submission") or {}).get("author") == "renamed",
+              str(subR)[:110])
+        subN = sY.submit_post(signedY4,
+                              "https://x.com/fourth/status/9509", cidY)
+        check("P6D submit: an unverified account cannot submit at all"
+              " (not_verified answers before the wire — an account that"
+              " cannot score spends no provider call)",
+              subN.get("reason") == "not_verified", str(subN)[:90])
+        # — the route lane: metering, server-side expiry, housekeeping, board —
+        xapimod.urllib.request.urlopen = stub(
+            lambda u, who: fx_body("9506", text=EXAMPLE) if who == "fx"
+            else oe_body("9506"))
+        codes9506 = []
+        for _tryY in range(11):
+            outR = rY.dispatch("POST", "/api/account/x/verify", {}, JSONY,
+                               ckY4, {"url": "https://x.com/paperusdc/status/9506"})
+            codes9506.append(outR[0])
+        check("P6D route: verification attempts are metered — ten ride the"
+              " bucket (each refused honestly on its identity wall), the"
+              " eleventh is a 429 xverify_rate_limited",
+              set(codes9506[:10]) == {409} and codes9506[10] == 429,
+              str(codes9506))
+        tokY4 = out4[2]["Set-Cookie"].split("PBSD=")[1].split(";")[0]
+        dY.conn.execute("UPDATE sessions SET expires_at=1700000000"
+                        " WHERE token=?", (tokY4,))
+        dY.conn.commit()
+        outE = rY.dispatch("GET", "/api/account", {}, {}, ckY4, None)
+        swept = dY.conn.execute("SELECT COUNT(*) n FROM sessions WHERE token=?",
+                                (tokY4,)).fetchone()["n"]
+        check("P6D seat: server-side expiry outranks the cookie's promise — a"
+              " dead week answers 401 not_authenticated and the row is swept"
+              " on the spot",
+              outE[0] == 401 and swept == 0, str(outE)[:90])
+        dY.conn.execute("INSERT INTO sessions(token,user_id,created_at,"
+                        "account_id,expires_at,last_seen_at)"
+                        " VALUES('sweptoo',NULL,'x',?,?,NULL)",
+                        (accY1["id"], 1700000000))
+        dY.conn.execute("INSERT INTO magic_links(token_hash,account_id,"
+                        "created_at,expires_at,used_at)"
+                        " VALUES('deadzz',?,?,?,?)",
+                        (accY1["id"], 1700000000 - 600, 1700000000, 1700000000))
+        dY.conn.commit()
+        sY.account_new_session(accY1["id"])
+        goneS = dY.conn.execute("SELECT COUNT(*) n FROM sessions WHERE"
+                                " token='sweptoo'").fetchone()["n"]
+        goneM = dY.conn.execute("SELECT COUNT(*) n FROM magic_links WHERE"
+                                " token_hash='deadzz'").fetchone()["n"]
+        check("P6D housekeeping: a login instant sweeps the dead — expired"
+              " sessions go by their own date and spent/stale magic rows"
+              " retire after a day (no scheduler needed)",
+              goneS == 0 and goneM == 0, f"{goneS}/{goneM}")
+        outD = rY.dispatch("GET", "/api/account", {}, {}, ckY1, None)
+        acctD = (outD[1] or {}).get("account") or {}
+        check("P6D dashboard: the account dict carries its X state end to end"
+              " (x_verified and x_user_id) so the frontend's verification lane"
+              " has one server truth to read",
+              outD[0] == 200 and acctD.get("x_verified") is True
+              and acctD.get("x_user_id") == "4242", str(acctD)[:120])
+    finally:
+        xapimod.urllib.request.urlopen = saved_urlopenY
+
+    # ---- P6C.34 (UX pass): the frontend keeps its promises in the text ----
+    # three facts the browser runs with, pinned so a future edit cannot drift
+    # them away: the dashboard's X-verification strip is a wrapped, hidden-by-
+    # default lane, it is revealed only when the server actually speaks X (so
+    # the older live backend shows no dead form), and the account's own front-
+    # page row is both marked and styled — a green spine, never the gold ones.
+    uxjs = open(os.path.join(os.path.dirname(__file__), "..", "js", "paperboard.js")).read()
+    uxbd = open(os.path.join(os.path.dirname(__file__), "..", "js", "components",
+                             "board.js")).read()
+    uxcss = open(os.path.join(os.path.dirname(__file__), "..", "css",
+                              "paperboard.css")).read()
+    check("ux: the dash's X-verification strip is one wrapped lane, hidden by default",
+          'id="pb-xstrip" hidden' in uxbd)
+    check("ux: the strip opens only when the server speaks X (no dead controls"
+          " on the older backend the live site still runs)",
+          '"x_verified" in acct' in uxjs and '$("#pb-xstrip")' in uxjs)
+    check("ux: the account's own front-page row is marked (tr-you) and styled"
+          " with a green spine, never gold",
+          "tr-you" in uxjs and "tr-you" in uxcss
+          and "inset 3px 0 0 var(--green)" in uxcss)
 
     print("failures:", len(FAILURES))
     return len(FAILURES)

@@ -23,29 +23,22 @@ export function Board() {
               post paper.<br><span class="line2">earn points.</span><br>climb the front page.
             </h2>
             <p class="board__lede" data-reveal>
-              a PAPERBOARD account is an email and a magic link — no password,
-              no wallet extension, no X connect. paste a public X post; the
-              server reads it, gates it (an identifier — the CA, <b>@paperusdc</b>
-              or <b>$paper</b> — plus the follow rule), prints points, and keeps
-              the ledger. you bring posts; the math is the paper's.
+              you bring your OWN posts; the server reads, gates, and counts
+              them — you get the points for your posts, not the neighborhood's.
             </p>
 
             <ol class="board__steps" data-reveal>
               <li class="board__step">
                 <span class="board__step-n">01</span>
-                <span><b>Create a PAPERBOARD account</b><span>email in, magic link out, done. X is a byline we verify, not a login you need.</span></span>
+                <span><b>Create your account</b><span>sign in with your email and set up your profile.</span></span>
               </li>
               <li class="board__step">
                 <span class="board__step-n">02</span>
-                <span><b>Paste a public X post</b><span>any post — yours or somebody else's. the server resolves the author, never the paste.</span></span>
+                <span><b>Verify and submit</b><span>verify your X account, then submit links to your eligible posts.</span></span>
               </li>
               <li class="board__step">
                 <span class="board__step-n">03</span>
-                <span><b>Drop a Solana address</b><span>no wallet connect, no signing, no seed phrase — just where rewards would land.</span></span>
-              </li>
-              <li class="board__step">
-                <span class="board__step-n">04</span>
-                <span><b>The board is official</b><span>standings are snapshots, refreshed on a schedule — not real-time, on purpose.</span></span>
+                <span><b>Earn points</b><span>qualifying posts earn points toward your leaderboard position.</span></span>
               </li>
             </ol>
 
@@ -78,10 +71,9 @@ export function Board() {
                 <div class="panel__state" data-state="idle">
                   <div class="p-join">
                     <h3>Sign in / Create account</h3>
-                    <p>Enter your email and PAPERBOARD will send a secure, one-time
-                       sign-in link — it signs you in, and opens the account on
-                       first use. No passwords, no wallet extension, and no X
-                       account required.</p>
+                    <p>Enter your email and PAPERBOARD will send a secure,
+                       one-time sign-in link — it signs you in and opens the
+                       account on first use.</p>
                     <div class="p-join__form">
                       <label class="sr" for="pb-email-input">Email</label>
                       <input id="pb-email-input" type="email" inputmode="email" autocomplete="email"
@@ -109,15 +101,19 @@ export function Board() {
                       <label class="sr" for="pb-username-input">Username</label>
                       <input id="pb-username-input" type="text" autocomplete="nickname"
                              spellcheck="false" placeholder="choose a username" maxlength="24">
+                      <label class="sr" for="pb-xhandle-input">Your X handle</label>
+                      <input id="pb-xhandle-input" type="text" autocomplete="off"
+                             spellcheck="false" placeholder="your X handle (@ optional)" maxlength="16">
                       <label class="sr" for="pb-wallet-input">Solana reward wallet</label>
                       <input id="pb-wallet-input" type="text" inputmode="text" autocomplete="off"
                              spellcheck="false" placeholder="paste your Solana address" maxlength="48">
                     </div>
                     <button type="button" class="btn btn--solid" data-action="onboard">Enter PAPERBOARD</button>
                     <p class="p-wallet__note">${ICONS.wallet}
-                       <span><b>Rewards will be sent to this Solana address.</b>
+                       <span><b>Reward entries point at this Solana address.</b>
                        only the public address — no connect, no signature, no seed phrase,
                        no private key.</span></p>
+                    <p>Your X handle rides in as a claim — you prove it once with a post.</p>
                     <p class="p-join__err" data-slot="onboard-err" aria-live="polite"></p>
                   </div>
                 </div>
@@ -138,9 +134,23 @@ export function Board() {
                       <label class="sr" for="pb-submit-input">X post URL</label>
                       <input id="pb-submit-input" type="text" inputmode="url" autocomplete="off"
                              spellcheck="false" placeholder="https://x.com/…/status/…">
-                      <button type="button" class="btn btn--solid" data-action="submit-post">Verify post ${ICONS.x}</button>
+                      <button type="button" class="btn btn--solid" data-action="submit-post">Post it ${ICONS.x}</button>
                     </div>
                     <div class="p-dash__verdict" data-slot="submit-verdict" aria-live="polite" hidden></div>
+
+                    <div class="p-dash__xverify" id="pb-xstrip" hidden>
+                      <div class="p-dash__submit">
+                        <span class="p-dash__swap" data-slot="x-status">X: —</span>
+                        <button type="button" class="btn btn--ghost" data-action="copy-example">copy example</button>
+                      </div>
+                      <div class="p-dash__submit">
+                        <label class="sr" for="pb-xverify-input">X verification post URL</label>
+                        <input id="pb-xverify-input" type="text" inputmode="url" autocomplete="off"
+                               spellcheck="false" placeholder="your own post announcing PAPERBOARD">
+                        <button type="button" class="btn btn--solid" data-action="x-verify">Verify X</button>
+                      </div>
+                      <div class="p-dash__verdict" data-slot="xverify-verdict" aria-live="polite" hidden></div>
+                    </div>
 
                     <div class="p-dash__ledger">
                       <p class="p-dash__ledger-head">recent earnings</p>

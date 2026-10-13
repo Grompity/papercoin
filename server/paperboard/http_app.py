@@ -108,7 +108,7 @@ class Router:
             flags = "Path=/; HttpOnly; SameSite=" + samesite
             if settings.secure_cookies:
                 flags += "; Secure"
-            days = int(s.acfg.get("sessionDays", 30))
+            days = int(s.acfg.get("sessionDays", 7))
             return (f"PBSD={token}; {flags}; Max-Age={days * 86400}")
 
         if method == "GET":
@@ -167,7 +167,7 @@ class Router:
                     return fail(401, why)
                 seat = s.account_new_session(signed_in["id"])
                 return (302, "See you at the board.",
-                        {"Location": "/#board", "Set-Cookie": cookie(seat),
+                        {"Location": settings.magic_landing(), "Set-Cookie": cookie(seat),
                          "Cache-Control": "no-store"})
             if path == "/api/account":
                 if account is None:
@@ -377,7 +377,8 @@ class Router:
                 if denied:
                     return denied
                 err = s.onboard_account(account, (body or {}).get("username"),
-                                        (body or {}).get("wallet"))
+                                        (body or {}).get("wallet"),
+                                        (body or {}).get("xhandle"))
                 if err:
                     return fail(422, err)
                 return 200, s.dashboard(s.account_by_id(account["id"]), cid), None
@@ -395,6 +396,33 @@ class Router:
                 fresh_row = s.account_by_id(account["id"])
                 return ok(wallet=addr,
                           wallet_effective_at=fresh_row["wallet_effective_at"])
+
+            if path == "/api/account/x/verify":
+                # an ownership proof, not a login: the post itself is read
+                # server-side — author, wording, existence — and nothing the
+                # browser claims is taken at face value. one wall per post,
+                # one per account, one identity per account.
+                denied = acct_gate()
+                if denied:
+                    return denied
+                if not self._allow(f"xverify:{account['id']}",
+                                   rl.get("xverifyPerTenMinutes", 10), 600):
+                    return fail(429, "xverify_rate_limited")
+                res = s.verify_x(account, (body or {}).get("url"),
+                                 (body or {}).get("handle"))
+                if not res.get("ok"):
+                    return {"bad_post_url": 400, "post_not_found": 404,
+                            "provider_unavailable": 502,
+                            "author_mismatch": 403,
+                            "x_handle_taken": 409,
+                            "verification_post_used": 409,
+                            "verification_exists": 409,
+                            "verify_wording": 422,
+                            "verification_pending": 424,
+                            "bad_x_handle": 422}.get(
+                                res.get("reason", "verify_failed"), 400), \
+                        {"error": res.get("reason", "verify_failed")}, None
+                return ok(**res)
 
             if path == "/api/account/posts":
                 denied = acct_gate()
@@ -415,7 +443,9 @@ class Router:
                     return {"bad_post_url": 400, "post_not_found": 404,
                             "duplicate_submission": 409,
                             "submission_limit": 429,
-                            "provider_unavailable": 502}.get(reason, 400), payload, None
+                            "provider_unavailable": 502,
+                            "not_verified": 403, "wrong_author": 403}.get(
+                                reason, 400), payload, None
                 return ok(submission=res["submission"], mode=mode)
 
             if path == "/api/auth/logout":

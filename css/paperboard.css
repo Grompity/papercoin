@@ -278,3 +278,13 @@
    display:inline-flex (paper.css), which outranks the UA's [hidden] rule.
    the legacy demo sign-in ships hidden; this is the guard that keeps it so. */
 .btn[hidden] { display: none }
+
+/* PAPERBOARD UX pass — the X-verification lane is one grid and hidden must
+   mean hidden inside it (mirrors the verdict lane's own guard). the disabled
+   state is deliberate, not browser-default gray. the account's own row on the
+   front page gets a green spine, so 'you' never reads like the gold lanes. */
+.p-dash__xverify { display: grid; gap: .9rem }
+.p-dash__xverify[hidden] { display: none }
+.p-dash button[disabled] { opacity: .55; pointer-events: none }
+.board-table tbody tr.tr-you { background: rgba(62, 201, 95, .07);
+  box-shadow: inset 3px 0 0 var(--green) }

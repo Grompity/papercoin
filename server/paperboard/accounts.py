@@ -19,6 +19,10 @@ EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Z
 # byline rules: starts with a letter, letters/digits/underscore, 2–24 total.
 USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{1,23}$")
 
+# the X handle: a claimed byline for verification — the provider's own limit
+# is 15, one notch tighter than a username, and case folds into the stored form.
+X_HANDLE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{1,14}$")
+
 # the one URL shape we trust: (twitter|x).com — any www/mobile/old alias —
 # /handle/status/id/... with query and fragment stripped first.
 POST_HOST = r"(?:[\w-]+\.)*(?:twitter|x)\.com"
@@ -68,6 +72,16 @@ def parse_post_url(raw):
         return None
     author, post_id = m.group(1), m.group(2)
     return post_id, author.lower(), f"https://x.com/{author.lower()}/status/{post_id}"
+
+
+def normalize_handle(raw):
+    """An X handle claimed for verification: the leading '@' is optional,
+    the shape is the provider's own (1–15), and the stored form is folded to
+    lower case — the same folding the provider's author answer gets."""
+    if not raw or not isinstance(raw, str):
+        return None
+    name = raw.strip().lstrip("@").lower()
+    return name if X_HANDLE_RE.match(name) else None
 
 
 def new_magic_token():

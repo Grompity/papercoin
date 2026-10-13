@@ -20,8 +20,9 @@ export function Scoring() {
           <div>
             <h3>The gate</h3>
             <p>
-              a post scores only if <b>the author follows @paperusdc</b>
-              <em>(checked by the server, not asserted by the browser)</em>
+              a post scores only if the submitting account is <b>verified</b>,
+              <b>the post's own author</b> is that account's X identity
+              <em>(read by the server, not asserted by the browser)</em>,
               <b>and</b> the post contains one of the three identifiers:
             </p>
             <ul>

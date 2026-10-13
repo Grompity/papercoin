@@ -113,16 +113,23 @@
       "scanPerTenMinutes": 6,
       "leaderboardPerMinute": 30,
       "magicSendPerTenMinutes": 6,
-      "submitPerTenMinutes": 8
+      "submitPerTenMinutes": 8,
+      "xverifyPerTenMinutes": 10
     },
 
     "account": {
       "magicLinkMinutes": 15,
       "magicResendSeconds": 45,
-      "sessionDays": 30,
+      "sessionDays": 7,
       "freshAuthMinutes": 15,
       "walletCooldownMinutes": 60,
       "maxSubmissionsPerDay": 30
+    },
+
+    "xVerify": {
+      "mention": "@paperusdc",
+      "announce": "paperboard",
+      "joinWords": ["join", "signed up", "signing up", "signup", "new to"]
     }
   }
 }

@@ -171,11 +171,13 @@ function paintBoard() {
   const rows = b.rows.map((r) => {
     const mv = r.movement == null || r.movement === 0 ? ""
       : `<span class="mv ${r.movement > 0 ? "up" : "down"}">${r.movement > 0 ? "▲" : "▼"}${Math.abs(r.movement)}</span>`;
+    const you = ((S.dash && S.dash.account && S.dash.account.x_handle) || "").toLowerCase();
+    const isYou = !!you && ((r.user && r.user.handle) || "").toLowerCase() === you;
     return `
-    <tr class="${r.rank === 1 ? "tr-front" : (r.rank <= 3 ? "tr-head" : "")}">
+    <tr class="${r.rank === 1 ? "tr-front" : (r.rank <= 3 ? "tr-head" : "")}${isYou ? " tr-you" : ""}">
       <td class="cell-rank rk">${r.rank}${mv}</td>
       <td class="cell-name nm">
-        <a class="nm__handle" href="https://x.com/${r.user.handle}" target="_blank" rel="noopener noreferrer">@${r.user.handle}</a>
+        <a class="nm__handle" href="https://x.com/${r.user.handle}" target="_blank" rel="noopener noreferrer">@${r.user.handle}</a>${isYou ? ' <span class="dim">(you)</span>' : ""}
       </td>
       <td class="num num--pts" data-label="Points">${fmt(r.points, 1)}${r.bonus_points ? ` <span class="dim">(${fmt(r.base_points, 0)}+${fmt(r.bonus_points, 1)})</span>` : ""}${r.pending ? ` <span class="dim" title="official like count awaiting admin review">⏳${r.pending}</span>` : ""}</td>
       <td class="num" data-label="Posts">${r.posts}</td>
@@ -242,6 +244,14 @@ function paintDash(animate = true) {
   }
   const unit = S.cfg?.prize?.unit || S.cfg?.prize?.type || "";
   const stats = $('[data-slot="acct-stats"]');
+  const xst = $('[data-slot="x-status"]');
+  if (xst) xst.textContent = acct.x_verified
+    ? `X: @${acct.x_handle || "?"} — verified`
+    : "X: one post proves it — paste your announcement post once";
+  /* version gate: an older backend carries no x_verified field at all —
+     hide the whole verification strip rather than show a dead form */
+  const xwrap = $("#pb-xstrip");
+  if (xwrap) xwrap.hidden = !("x_verified" in acct);
   if (stats) stats.innerHTML = `
     <div class="metric"><span class="metric__k">Submitted</span><span class="metric__v">${fmt(d.submitted)}</span></div>
     <div class="metric"><span class="metric__k">Verified</span><span class="metric__v">${fmt(d.verified_posts)}</span></div>
@@ -313,8 +323,8 @@ function renderSubmissions() {
 }
 
 /* — the submit flow (the board's one real verb) — */
-function verdict(msg, good) {
-  const slot = $('[data-slot="submit-verdict"]');
+function verdict(msg, good, slotName = "submit-verdict") {
+  const slot = $(`[data-slot="${slotName}"]`);
   if (!slot) return;
   slot.hidden = false;
   slot.className = `p-dash__verdict ${good ? "is-yes" : "is-no"}`;
@@ -380,14 +390,17 @@ async function doJoin() {
 async function doOnboard() {
   const username = ($("#pb-username-input")?.value || "").trim();
   const wallet = ($("#pb-wallet-input")?.value || "").trim();
+  const xhandle = ($("#pb-xhandle-input")?.value || "").trim();
   errSlot("onboard-err", "");
   try {
-    S.dash = await post("/api/account/onboard", { username, wallet });
+    S.dash = await post("/api/account/onboard", { username, wallet, xhandle });
     setState("dash");
     await refreshAccount(true);
   } catch (e) {
     const msg = { bad_username: "the byline needs letters first (2–24, no punctuation soup).",
                   username_taken: "that byline is already printing.",
+                  bad_x_handle: "that doesn't read like an X handle (1–15, letters first).",
+                  x_handle_taken: "that X handle already rides another account.",
                   invalid_solana_address: "that isn't shaped like a Solana address (32–44 base58)." }[e.payload?.error]
                 || e.payload?.error || "the server blinked.";
     errSlot("onboard-err", msg);
@@ -412,6 +425,33 @@ async function doChangeWallet() {
   }
 }
 
+/* — the X ownership proof (a post is the deed; the server reads it) — */
+async function doXVerify() {
+  const input = $("#pb-xverify-input");
+  const v = (input?.value || "").trim();
+  try {
+    const j = await post("/api/account/x/verify", { url: v });
+    verdict(j.reason === "verified"
+      ? `VERIFIED ✓ — your X account @${j.x_handle} is bound`
+      : `already on the record (@${j.x_handle || "?"})`,
+      true, "xverify-verdict");
+    await refreshAccount(false);
+  } catch (e) {
+    const msg = { author_mismatch: "the server read a different author on that post.",
+                  verification_post_used: "that post already verified somebody else.",
+                  verification_exists: "this account already verified — one proof each.",
+                  x_handle_taken: "that X identity already rides another account.",
+                  verify_wording: "the post must tag @paperusdc and say you joined PAPERBOARD.",
+                  verification_pending: "the witness feed answered thin (a byline without an id) — try again in a minute.",
+                  bad_post_url: "that doesn't read like an X post URL.",
+                  post_not_found: "no such post out there (or the provider can't see it).",
+                  provider_unavailable: "the syndication feed blinked. try again.",
+                  xverify_rate_limited: "the verification desk has a pace too." }[e.payload?.error]
+                || e.payload?.error || "the verification desk blinked.";
+    verdict(msg, false, "xverify-verdict");
+  }
+}
+
 async function connect() {                      /* the legacy Connect-X demo */
   const p = panel(); p.dataset.state = "scan";
   try {
@@ -427,7 +467,10 @@ function wire() {
     const a = btn.dataset.action;
     if (a === "join") await doJoin();
     else if (a === "onboard") await doOnboard();
-    else if (a === "submit-post") await doSubmit();
+    else if (a === "submit-post") { btn.disabled = true; await doSubmit(); btn.disabled = false; }
+    else if (a === "x-verify") { btn.disabled = true; await doXVerify(); btn.disabled = false; }
+    else if (a === "copy-example") navigator.clipboard?.writeText(
+      "I just signed up for PAPERBOARD, a new raiding platform by @paperusdc — points for posts, on the board!").catch(() => {});
     else if (a === "open-wallet") setState("wallet");
     else if (a === "change-wallet") await doChangeWallet();
     else if (a === "logout") { try { await post("/api/auth/logout"); } catch {} window.location.reload(); }
@@ -441,6 +484,16 @@ function wire() {
       btn.setAttribute("aria-expanded", String(!open));
       btn.innerHTML = (open ? "View my submissions" : "Hide submissions") + " " + ICONS_CHEVRON;
     }
+  });
+  /* enter = the button beside the box — the panel's four verbs */
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const act = { "pb-email-input": "join", "pb-submit-input": "submit-post",
+                  "pb-xverify-input": "x-verify",
+                  "pb-wallet-settings-input": "change-wallet" }[e.target?.id];
+    if (!act) return;
+    e.preventDefault();
+    $(`[data-action="${act}"]`)?.click();
   });
   /* hero CTA: scroll to the board and prefill nothing — the email is yours */
   $$("[data-hero-connect]").forEach((a) => a.addEventListener("click", () => {
