@@ -402,8 +402,15 @@ async function doSubmit() {
    attempt instead of racing a second POST. the var keyword is deliberate:
    the battery clears it between scenarios. */
 const JOIN_RETRY_PAUSE = 900;
-const transientJoin = (e) => !!(e && e.status >= 500 &&
-                                !(e.payload && e.payload.error));
+/* p6l: the no-status reject now shares the one bounded try. audited: a
+   rejection with no status reads as 'no answer came from anywhere' and
+   usually means the request died before the server — the retry is then
+   the first real attempt; if the first was processed and its response
+   was lost, the 45s window re-answers { sent: true } without minting or
+   mailing twice; a lapsed window yields one bounded extra send whose
+   sibling links stay live (a landing marks only the token it landed on). */
+const transientJoin = (e) => !!(e && !(e.payload && e.payload.error) &&
+                               (!e.status || e.status >= 500));
 var joinInFlight = null;
 function postJoinWithRetry(body, postFn, wake) {
   if (joinInFlight) return joinInFlight;

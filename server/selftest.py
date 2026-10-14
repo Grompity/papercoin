@@ -713,9 +713,11 @@ def main():
     # ---- shape; the parser cannot prove where a 5xx was born, and the app
     # ---- answers only JSON, so every JSON failure — refusal, pace, the app's
     # ---- own keyed 5xx — keeps its single try and its words). the no-status
-    # ---- reject is not retried: with no proof the request died before the
-    # ---- server, a resend could double the mail; the app's own
-    # ---- magicResendSeconds (45s default) window is the idempotency standing
+    # ---- reject takes the one bounded retry under the p6l audit: it usually
+    # ---- means the request died before the server, so the retry is the first
+    # ---- real attempt; when the first was processed and its response was
+    # ---- lost, the app's own magicResendSeconds (45s default) window remains
+    # ---- the idempotency standing
     # ---- guard — a lost-but-processed first attempt re-answers { sent: true }
     # ---- without minting or mailing twice. the in-flight dedupe is the join
     # ---- flow's own answer to the doctrine the sibling buttons keep via
@@ -769,14 +771,20 @@ go('s4-validation-never-retried', [mkSP(mkErr(422, 'invalid_email'), false)],
    1, true, 422);
 go('s5-pace-never-retried', [mkSP(mkErr(429, 'magic_rate_limited'), false)],
    1, true, 429);
-go('s6-no-status-not-retried', [mkSP({ payload: {} }, false)],
-   1, true, '~');
+go('s6-no-status-takes-one-retry', [mkSP({ payload: {} }, false),
+                                    mkSP({ sent: true }, true)],
+   2, false, null);
+go('s7-two-no-status-stop-at-two', [mkSP({ payload: {} }, false),
+                                    mkSP({ payload: {} }, false)],
+   2, true, '~');
+go('s8-bare-4xx-never-retried', [mkSP(mkErr(404), false)],
+   1, true, 404);
 joinInFlight = null;
 var calls7 = 0;
 var post7 = function () { calls7++; return mkSP({ sent: true }, true); };
 var p1 = postJoinWithRetry({ email: 'x' }, post7, function (f) { return f(); });
 var p2 = postJoinWithRetry({ email: 'x' }, post7, function (f) { return f(); });
-res.push('s7-double-click-dedupes'
+res.push('s9-double-click-dedupes'
          + ((calls7 === 1 && p1 === p2) ? ':ok' : ':FAIL(calls=' + calls7 + ')'));
 var bad6 = res.filter(function (x) { return x.indexOf(':ok') < 0; });
 bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
@@ -788,16 +796,21 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           " retries the proxy-page class exactly once (530-then-success and"
           " 502-then-success each take two turns; two transients stop at two and"
           " surface the second failure), while validation (422), pace (429),"
-          " and the no-status reject take exactly one turn; a double click"
-          " during an in-flight join dedupes into one POST",
+          " and a bare 4xx take exactly one turn, and the no-status reject —"
+          " the p6l class — takes the one bounded retry and stops at two when"
+          " both turns are rejected; a double click during an in-flight join"
+          " dedupes into one POST",
           _o6.returncode == 0 and "P6K" in _t6 and "FAIL" not in _t6,
           _t6.strip()[:120])
-    check("P6K class: the predicate's written shape is exactly 'a status at 500"
-          " or above carrying no payload error' — JSON refusals, paces, and the"
-          " app's keyed 5xx are structurally excluded, so no permanent answer"
-          " can ever eat a second POST, and the class cannot silently widen",
+    check("P6K class: the predicate's written shape is 'no payload error, and"
+          " either no status at all or a status at 500 or above' — JSON"
+          " refusals, paces, and the app's keyed 5xx are structurally excluded"
+          " by the payload clause, a bare 4xx by the status arms, so no"
+          " permanent answer can ever eat a second POST, and the class cannot"
+          " silently widen either way",
           "e.status >= 500" in _pk
-          and "!(e.payload && e.payload.error)" in _pk, "predicate pinned")
+          and "!(e.payload && e.payload.error)" in _pk
+          and "!e.status || e.status >= 500" in _pk, "predicate pinned")
     _svc = open(os.path.join(os.path.dirname(__file__), "paperboard",
                              "service.py")).read()
     check("P6K idempotency: the guard a retry walks into is the app's own — the"
