@@ -676,6 +676,38 @@ def main():
           "[pb]" in _line and "token=<t>" in _line and "ABCDEF0123456789" not in _line
           and "/api/auth/magic" in _line and "302" in _line, _line[:90])
 
+    # ---- P6J (the door hunt's shipped lesson — observability): the access
+    # ---- line carries a clock so a browser's minute can be found, and the
+    # ---- join fallback now names its own class. the lane itself was proven
+    # ---- healthy end to end against the live service (validation, buckets,
+    # ---- account row, token, a real SMTP submit included, both routes under
+    # ---- two seconds) and has never logged a failing /start — so the door's
+    # ---- surviving suspects are the edge hop's badly-shaped answer and the
+    # ---- fetch that never got one; only the next real browser tells them
+    # ---- apart, and now it will say which. no semantics moved. --
+    _boxJ = _io.StringIO()
+    with _ctx.redirect_stdout(_boxJ):
+        runmod.Handler.log_message(
+            None, '"POST /api/account/start?token=ABCDEF0123456789 HTTP/1.1" - - 200 12')
+    _lineJ = _boxJ.getvalue()
+    check("P6J logs: the access line is stamped (HH:MM:SS after the tag) so a"
+          " user's failing minute is findable — and the token redaction"
+          " survives the stamp untouched",
+          _lineJ.startswith("[pb] ") and _lineJ[5].isdigit()
+          and _lineJ[7] == ":" and _lineJ[10] == ":"
+          and "token=<t>" in _lineJ and "ABCDEF0123456789" not in _lineJ,
+          _lineJ[:60])
+    _frontJ = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                                "paperboard.js")).read()
+    check("P6J mail door: the fallback names its own class — a status in"
+          " parentheses means an answer arrived that the lane cannot read"
+          " (an edge or proxy page), 'no answer' means the fetch itself died"
+          " before any status — while every known refusal keeps its own words",
+          '(e && e.status)' in _frontJ
+          and "the mail door stuck. (n" in _frontJ
+          and "the mail door stuck. no answer" in _frontJ
+          and "that doesn't read like an email" in _frontJ, "instrument shipped")
+
     stt, payload = go("GET", "/api/account")
     check("acct: the dashboard is 401 for the seatless (no IDOR door)",
           stt == 401 and payload.get("error") == "not_authenticated")

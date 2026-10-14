@@ -74,7 +74,11 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
-        print("[pb]", TOKEN_IN_LOG.sub("token=<t>", fmt % args))
+        # the access line now carries a clock: without one, the minute a
+        # user failed in cannot be found in this log at all — the door hunt
+        # proved the gap. token redaction rides after the stamp, unchanged.
+        print("[pb]", time.strftime("%H:%M:%S", time.localtime()),
+              TOKEN_IN_LOG.sub("token=<t>", fmt % args))
 
     def _go(self, method):
         parsed = urllib.parse.urlparse(self.path)

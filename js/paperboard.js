@@ -403,7 +403,9 @@ async function doJoin() {
                   account_closed: "that account is closed.",
                   mail_failed: "the mail lane did not answer. try again.",
                   server_error: "the server blinked. try again." }[e.payload?.error]
-                || e.payload?.error || "the mail door stuck.";
+                || e.payload?.error
+                || ((e && e.status) ? "the mail door stuck. (n" + e.status + ")"
+                                     : "the mail door stuck. no answer.");
     errSlot("join-err", msg);
   }
 }
