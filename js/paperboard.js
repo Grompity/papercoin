@@ -434,7 +434,7 @@ async function doJoin() {
   errSlot("join-err", "");
   if (!v) { errSlot("join-err", "an email first."); return; }
   try {
-    const j = await postJoinWithRetry({ email: v });
+    const j = await postJoinWithRetry({ email: v }, post);
     setState("email");
     const slot = $('[data-slot="magic-link"]');
     if (slot) slot.innerHTML = j.link

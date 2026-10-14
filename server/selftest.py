@@ -735,7 +735,7 @@ def main():
           " onto it, and the join flow keeps no bare POST on its path — every"
           " other flow (verify, submit, onboard, wallet) still speaks to post()"
           " untouched, so the retry cannot leak past the join lane",
-          bool(_pm) and "await postJoinWithRetry({ email: v })" in _pk
+          bool(_pm) and "await postJoinWithRetry({ email: v }, post)" in _pk
           and 'post("/api/account/start"' not in _pk, "seam extracted")
     _js = _pm.group(1) + r"""
 var mkSP = function (val, okFlag) {
@@ -811,6 +811,15 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           "e.status >= 500" in _pk
           and "!(e.payload && e.payload.error)" in _pk
           and "!e.status || e.status >= 500" in _pk, "predicate pinned")
+    check("P6M call site: the module's own call passes the module's own post as"
+          " the seam's second argument. the harness ever fed the seam its own"
+          " well-formed postFn, so the machinery could not feel production's"
+          " missing argument — a call site that ships without it throws inside"
+          " the seam before any fetch, the door cries its no-answer sentence all"
+          " the same, and the network panel stays empty: the seam's arity is"
+          " now pinned as a literal, so the two ends of the lane can no longer"
+          " drift apart unnoticed",
+          "postJoinWithRetry({ email: v }, post)" in _pk, "post rides the call")
     _svc = open(os.path.join(os.path.dirname(__file__), "paperboard",
                              "service.py")).read()
     check("P6K idempotency: the guard a retry walks into is the app's own — the"
