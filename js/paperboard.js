@@ -386,13 +386,48 @@ async function doSubmit() {
 }
 
 /* — actions — */
+/* -- P6K join-retry begin -- */
+/* one retry, join flow only. the class retried is by SHAPE — a status at
+   500+ carrying no payload error, which is the proxy-page shape (the
+   tunnel's 530, the edge's 5xx). the parser cannot prove WHERE a 5xx was
+   born, but the app answers only JSON, so every JSON failure — every
+   refusal, every pace, the app's own keyed 5xx (server_error, mail_failed)
+   — keeps its single try and its words. a no-status reject is NOT retried:
+   with no proof the request died before the server, a resend could double
+   the mail. the app's own magicResendSeconds (45s) window stands guard
+   under a lost-but-processed first attempt — it re-answers { sent: true }
+   without minting or mailing twice. the guard below is the doctrine the
+   sibling buttons keep with btn.disabled — the join button has none — an
+   in-flight dedupe stands in its place: a second click joins the running
+   attempt instead of racing a second POST. the var keyword is deliberate:
+   the battery clears it between scenarios. */
+const JOIN_RETRY_PAUSE = 900;
+const transientJoin = (e) => !!(e && e.status >= 500 &&
+                                !(e.payload && e.payload.error));
+var joinInFlight = null;
+function postJoinWithRetry(body, postFn, wake) {
+  if (joinInFlight) return joinInFlight;
+  const run = postFn("/api/account/start", body)
+    .catch((e) => {
+      if (!transientJoin(e)) throw e;
+      return (wake || ((fn) => new Promise((res) =>
+        setTimeout(() => res(fn()), JOIN_RETRY_PAUSE))))
+        (() => postFn("/api/account/start", body));
+    });
+  const done = run.then((v) => { joinInFlight = null; return v; },
+                        (e) => { joinInFlight = null; throw e; });
+  joinInFlight = done;
+  return done;
+}
+/* -- P6K join-retry end -- */
+
 async function doJoin() {
   const input = $("#pb-email-input");
   const v = (input?.value || "").trim();
   errSlot("join-err", "");
   if (!v) { errSlot("join-err", "an email first."); return; }
   try {
-    const j = await post("/api/account/start", { email: v });
+    const j = await postJoinWithRetry({ email: v });
     setState("email");
     const slot = $('[data-slot="magic-link"]');
     if (slot) slot.innerHTML = j.link

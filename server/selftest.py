@@ -708,6 +708,107 @@ def main():
           and "the mail door stuck. no answer" in _frontJ
           and "that doesn't read like an email" in _frontJ, "instrument shipped")
 
+    # ---- P6K (signup resilience — one retry, join flow only): the class is
+    # ---- by SHAPE (status >= 500 carrying no payload error = the proxy-page
+    # ---- shape; the parser cannot prove where a 5xx was born, and the app
+    # ---- answers only JSON, so every JSON failure — refusal, pace, the app's
+    # ---- own keyed 5xx — keeps its single try and its words). the no-status
+    # ---- reject is not retried: with no proof the request died before the
+    # ---- server, a resend could double the mail; the app's own
+    # ---- magicResendSeconds (45s default) window is the idempotency standing
+    # ---- guard — a lost-but-processed first attempt re-answers { sent: true }
+    # ---- without minting or mailing twice. the in-flight dedupe is the join
+    # ---- flow's own answer to the doctrine the sibling buttons keep via
+    # ---- btn.disabled — the join button has none. the seam runs under JXA on
+    # ---- synchronous shams (JXA never pumps promise microtasks before exit);
+    # ---- if the harness itself errors, osascript prints to stderr and the
+    # ---- not_ guard below fails the run with the traceback in the label. --
+    _sp = __import__("subprocess")
+    _pk = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                            "paperboard.js")).read()
+    _re6 = __import__("re")
+    _pm = _re6.search(r"P6K join-retry begin -- \*/(.*?)\n/\* -- P6K join-retry end",
+                      _pk, _re6.DOTALL)
+    check("P6K seam: the retry stands between the markers, the call site moved"
+          " onto it, and the join flow keeps no bare POST on its path — every"
+          " other flow (verify, submit, onboard, wallet) still speaks to post()"
+          " untouched, so the retry cannot leak past the join lane",
+          bool(_pm) and "await postJoinWithRetry({ email: v })" in _pk
+          and 'post("/api/account/start"' not in _pk, "seam extracted")
+    _js = _pm.group(1) + r"""
+var mkSP = function (val, okFlag) {
+  return { val: val, ok: okFlag,
+    'catch': function (h) { return this.ok ? this : h(this.val); },
+    'then': function (a, b) { return this.ok ? a(this.val) : b(this.val); } };
+};
+var mkErr = function (status, errName) {
+  return { status: status, payload: errName ? { error: errName } : {} };
+};
+var res = [];
+var go = function (name, script, wantCalls, wantThrow, wantStatus) {
+  joinInFlight = null;
+  var calls = 0;
+  var postFn = function () { calls++; return script.shift(); };
+  var threw = null;
+  try { postJoinWithRetry({ email: 'x' }, postFn, function (f) { return f(); }); }
+  catch (e) { threw = e; }
+  var good = calls === wantCalls && ((wantThrow && threw &&
+      (wantStatus === '~' ? String(threw.status) === 'undefined'
+                           : threw.status === wantStatus))
+      || (!wantThrow && !threw));
+  res.push(name + (good ? ':ok' : ':FAIL(calls=' + calls
+           + ',threw=' + (threw ? String(threw.status) : '-') + ')'));
+};
+go('s1-530-then-success', [mkSP(mkErr(530), false), mkSP({ sent: true }, true)],
+   2, false, null);
+go('s2-502-then-success', [mkSP(mkErr(502), false), mkSP({ sent: true }, true)],
+   2, false, null);
+go('s3-two-transients-stop-at-two', [mkSP(mkErr(530), false), mkSP(mkErr(503), false)],
+   2, true, 503);
+go('s4-validation-never-retried', [mkSP(mkErr(422, 'invalid_email'), false)],
+   1, true, 422);
+go('s5-pace-never-retried', [mkSP(mkErr(429, 'magic_rate_limited'), false)],
+   1, true, 429);
+go('s6-no-status-not-retried', [mkSP({ payload: {} }, false)],
+   1, true, '~');
+joinInFlight = null;
+var calls7 = 0;
+var post7 = function () { calls7++; return mkSP({ sent: true }, true); };
+var p1 = postJoinWithRetry({ email: 'x' }, post7, function (f) { return f(); });
+var p2 = postJoinWithRetry({ email: 'x' }, post7, function (f) { return f(); });
+res.push('s7-double-click-dedupes'
+         + ((calls7 === 1 && p1 === p2) ? ':ok' : ':FAIL(calls=' + calls7 + ')'));
+var bad6 = res.filter(function (x) { return x.indexOf(':ok') < 0; });
+bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
+"""
+    _o6 = _sp.run(["osascript", "-l", "JavaScript", "-e", _js],
+                  capture_output=True, text=True)
+    _t6 = (_o6.stdout or "") + (_o6.stderr or "")
+    check("P6K behaviors: the seam, driven under JXA on synchronous shams,"
+          " retries the proxy-page class exactly once (530-then-success and"
+          " 502-then-success each take two turns; two transients stop at two and"
+          " surface the second failure), while validation (422), pace (429),"
+          " and the no-status reject take exactly one turn; a double click"
+          " during an in-flight join dedupes into one POST",
+          _o6.returncode == 0 and "P6K" in _t6 and "FAIL" not in _t6,
+          _t6.strip()[:120])
+    check("P6K class: the predicate's written shape is exactly 'a status at 500"
+          " or above carrying no payload error' — JSON refusals, paces, and the"
+          " app's keyed 5xx are structurally excluded, so no permanent answer"
+          " can ever eat a second POST, and the class cannot silently widen",
+          "e.status >= 500" in _pk
+          and "!(e.payload && e.payload.error)" in _pk, "predicate pinned")
+    _svc = open(os.path.join(os.path.dirname(__file__), "paperboard",
+                             "service.py")).read()
+    check("P6K idempotency: the guard a retry walks into is the app's own — the"
+          " issuance lane honors magicResendSeconds (45s default) and a known"
+          " account inside the window is touched, not re-minted, so a"
+          " lost-but-processed first attempt cannot double the mail; outside"
+          " the window a genuine resend costs one mail by design — the same"
+          " door an impatient human already knocks",
+          "magicResendSeconds" in _svc and "45" in _svc and "recent" in _svc,
+          "window stands")
+
     stt, payload = go("GET", "/api/account")
     check("acct: the dashboard is 401 for the seatless (no IDOR door)",
           stt == 401 and payload.get("error") == "not_authenticated")
