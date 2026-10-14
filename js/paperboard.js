@@ -400,7 +400,9 @@ async function doJoin() {
   } catch (e) {
     const msg = { invalid_email: "that doesn't read like an email.",
                   magic_rate_limited: "the mail door has a pace — breathe.",
-                  account_closed: "that account is closed." }[e.payload?.error]
+                  account_closed: "that account is closed.",
+                  mail_failed: "the mail lane did not answer. try again.",
+                  server_error: "the server blinked. try again." }[e.payload?.error]
                 || e.payload?.error || "the mail door stuck.";
     errSlot("join-err", msg);
   }

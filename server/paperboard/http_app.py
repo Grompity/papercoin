@@ -362,8 +362,14 @@ class Router:
                         s.mail.send_magic_link(
                             acct["email"],
                             settings.public_base + f"/api/auth/magic?token={token}")
-                    except RuntimeError as e:
-                        return fail(502, f"mail_failed: {e}")
+                    except (RuntimeError, OSError) as e:
+                        # the wire gets the one clean key, like every other
+                        # refusal; the smtp reply (or the socket's own words)
+                        # stays server-side. a connect failure that raises
+                        # OSError instead of RuntimeError is still a mail
+                        # delivery failure — it must not fall to a bare 500.
+                        print(f"[mail] send refused: {e}")
+                        return fail(502, "mail_failed")
                 out = dict(sent=True)                   # same shape, known or not
                 if s.mail.mode == "mock":               # dev-only echo — the
                     echo = (token if mailed else        # plaintext survives

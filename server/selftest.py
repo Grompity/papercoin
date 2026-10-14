@@ -629,6 +629,44 @@ def main():
     finally:
         r.s.mail.send_magic_link = _saved
         _ls.frontend_base = ""
+
+    # ---- P6I (the mail door speaks in keys): a failed send answers 502 with
+    # ---- the single token 'mail_failed', the smtp reply staying server-side;
+    # ---- the retry inside the resend window doubles neither account nor mail --
+    def _boom(to, url):
+        raise RuntimeError("smtp send failed: 451 hop refused")
+    r.s.mail.send_magic_link = _boom
+    _n0 = r.s.db.conn.execute("SELECT COUNT(*) AS n FROM accounts").fetchone()["n"]
+    _boxI = _io.StringIO()
+    with _ctx.redirect_stdout(_boxI):
+        stt, payload = go("POST", "/api/account/start", body={"email": "boom@paper.io"})
+    _printed = _boxI.getvalue()
+    check("P6I mail door: a failing send answers 502 with the one clean key"
+          " 'mail_failed' — no raw smtp reply rides the wire — while the"
+          " detail rides the server's own print, the detail that once would"
+          " have surfaced as 'mail_failed: smtp send failed: …'",
+          stt == 502 and (payload or {}).get("error") == "mail_failed"
+          and "[mail]" in _printed and "451 hop refused" in _printed,
+          str(payload)[:80])
+    stt, payload = go("POST", "/api/account/start", body={"email": "boom@paper.io"})
+    _n1 = r.s.db.conn.execute("SELECT COUNT(*) AS n FROM accounts").fetchone()["n"]
+    _routesrc = open(os.path.join(os.path.dirname(__file__),
+                                  "paperboard", "http_app.py")).read()
+    _frontsrc = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                                  "paperboard.js")).read()
+    r.s.mail.send_magic_link = _saved
+    check("P6I mail door: the retry inside the resend window mints exactly"
+          " one account and re-burns no raising lane (a failed send cannot"
+          " spam an inbox), and the repaired shapes are pinned in the shipped"
+          " sources — the route answers the single token and the old"
+          " exception-f-string is gone, while the front-end's map learned"
+          " mail_failed and server_error, reserving the catch-all for a door"
+          " that never answered at all",
+          stt == 200 and (payload or {}).get("sent") is True and _n1 == _n0 + 1
+          and 'fail(502, "mail_failed")' in _routesrc
+          and 'f"mail_failed:' not in _routesrc
+          and 'mail_failed: "' in _frontsrc and 'server_error: "' in _frontsrc,
+          str(payload)[:80])
     _buf = _io.StringIO()
     with _ctx.redirect_stdout(_buf):
         runmod.Handler.log_message(
