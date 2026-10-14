@@ -401,7 +401,10 @@ async function doSubmit() {
    in-flight dedupe stands in its place: a second click joins the running
    attempt instead of racing a second POST. the var keyword is deliberate:
    the battery clears it between scenarios. */
-const JOIN_RETRY_PAUSE = 900;
+const JOIN_RETRY_PAUSE = 20000; /* p6n: sized to the measured weather — the
+   connector's re-registration took ~18 s (down 20:26:40Z, registered
+   20:26:58Z), which 900 ms structurally cannot outrun. one retry still,
+   the retried class unchanged; the pause only moved to blip scale. */
 /* p6l: the no-status reject now shares the one bounded try. audited: a
    rejection with no status reads as 'no answer came from anywhere' and
    usually means the request died before the server — the retry is then

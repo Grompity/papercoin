@@ -820,6 +820,14 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           " now pinned as a literal, so the two ends of the lane can no longer"
           " drift apart unnoticed",
           "postJoinWithRetry({ email: v }, post)" in _pk, "post rides the call")
+    check("P6N pause: the retry's one pause is sized to the weather it must"
+          " outride — the connector's measured re-registration took ~18 seconds,"
+          " so the pause stands at 20000 ms. the doctrine is otherwise untouched:"
+          " still exactly one extra POST on the transient shapes, JSON refusals"
+          " and paces still never see a second try, and the app's own 45 s"
+          " window still guards a lost-but-processed first attempt — what"
+          " changed is only how far a blip may be and the click still answer",
+          "const JOIN_RETRY_PAUSE = 20000" in _pk, "pause sized to the blip")
     _svc = open(os.path.join(os.path.dirname(__file__), "paperboard",
                              "service.py")).read()
     check("P6K idempotency: the guard a retry walks into is the app's own — the"
