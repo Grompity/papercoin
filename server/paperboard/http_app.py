@@ -370,6 +370,8 @@ class Router:
                         # delivery failure — it must not fall to a bare 500.
                         print(f"[mail] send refused: {e}")
                         return fail(502, "mail_failed")
+                else:  # p6p: a deferral is visible server-side, never silent
+                    print("[mail] deferred (inside the 45 s resend window)")
                 out = dict(sent=True)                   # same shape, known or not
                 if s.mail.mode == "mock":               # dev-only echo — the
                     echo = (token if mailed else        # plaintext survives

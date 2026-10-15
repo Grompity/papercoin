@@ -838,6 +838,18 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           " door an impatient human already knocks",
           "magicResendSeconds" in _svc and "45" in _svc and "recent" in _svc,
           "window stands")
+    _mailsrc = open(os.path.join(os.path.dirname(__file__), "paperboard",
+                                 "mail.py")).read()
+    _httpsrc = open(os.path.join(os.path.dirname(__file__), "paperboard",
+                                 "http_app.py")).read()
+    check("P6P observability: the mail lane now tells the truth three ways — a"
+          " token-free timing line on an accepted smtp send, an explicit"
+          " deferral print when the 45 s resend window spares the inbox, and"
+          " (operational, VPS env) unbuffered stdout so journald sees the words"
+          " the moment they happen; absence of log lines stops being evidence"
+          " of absence of code",
+          "[mail] sent in" in _mailsrc and "[mail] deferred" in _httpsrc,
+          "three ways, no secrets")
 
     stt, payload = go("GET", "/api/account")
     check("acct: the dashboard is 401 for the seatless (no IDOR door)",

@@ -9,6 +9,7 @@ money mail away.
 """
 
 import smtplib
+import time
 import ssl
 
 # The framework python ships with an empty OpenSSL trust store (its documented
@@ -81,6 +82,7 @@ class SmtpMail:
                f"{link_url}\r\n\r\n"
                "You are receiving this because someone asked PAPERBOARD "
                "to sign an account in.\r\n")
+        t0 = time.monotonic()
         if self.port == smtplib.SMTP_SSL_PORT:
             conn = smtplib.SMTP_SSL(self.host, self.port, timeout=15,
                                     context=_ssl_context())
@@ -98,6 +100,7 @@ class SmtpMail:
             conn.quit()
         except (smtplib.SMTPException, OSError) as e:
             raise RuntimeError(f"smtp send failed: {e}")
+        print(f"[mail] sent in {time.monotonic() - t0:.2f}s")
         return True
 
 
