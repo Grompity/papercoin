@@ -357,6 +357,19 @@ CREATE TABLE IF NOT EXISTS artwork_votes (
 );
 CREATE INDEX IF NOT EXISTS ix_artworks_created ON artworks(created_at);
 CREATE INDEX IF NOT EXISTS ix_artworks_account ON artworks(account_id);
+
+-- WorldMap (feature two): one seat per member, in the member's own words —
+-- country required, region and city optional, never an address and never a
+-- coordinate. the public face aggregates by country; the seat itself belongs
+-- to its member, and leaving deletes it.
+CREATE TABLE IF NOT EXISTS member_locations (
+  account_id  INTEGER PRIMARY KEY,
+  country     TEXT NOT NULL,
+  region      TEXT NOT NULL DEFAULT '',
+  city        TEXT NOT NULL DEFAULT '',
+  updated_at  REAL NOT NULL,
+  FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
 """
 
 

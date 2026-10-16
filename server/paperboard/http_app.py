@@ -13,6 +13,7 @@ import time
 
 from .accounts import normalize_email
 from .artboard import Artboard
+from .worldmap import WorldMap
 from .settings import SITE_DIR
 from .xapi import make_pkce, XError
 
@@ -41,6 +42,7 @@ class Router:
         self.x = x
         self.clock = time.time
         self.art = Artboard(db, settings)
+        self.wm = WorldMap(db, settings)
         self._rl = {}
 
     # ------------------------------------------------------------ rate limits
@@ -244,6 +246,22 @@ class Router:
                         return fail(404, view.get("reason", "payout_batch_not_found"))
                     return ok(**view)
                 return fail(404, "unknown_api_route")
+            if path == "/api/worldmap":
+                if not self._allow(f"worldmap:{ip}",
+                                   rl["worldmapPerMinute"], 60):
+                    return fail(429, "rate_limited")
+                return ok(countries=self.wm.aggregate(),
+                          total=self.wm.total())
+
+            if path == "/api/account/location":
+                # the member's own seat, for their own eyes: no aggregate
+                # pretence here — one row or none, spoken by a session that
+                # passed the door (the content-type wall is a write wall, so
+                # the seat's own check is the slim one: an account or a 401).
+                if account is None:
+                    return fail(401, "not_authenticated")
+                return ok(location=self.wm.view(account["id"]))
+
             if path == "/api/artworks":
                 if not self._allow(f"artworks:{ip}",
                                    rl["artworksPerMinute"], 60):
@@ -516,6 +534,28 @@ class Router:
                     return fail(404, "art_absent")
                 if out == "not_owner":
                     return fail(403, "not_owner")
+                return ok(removed=True)
+
+            if path == "/api/account/location":
+                denied = acct_gate()
+                if denied:
+                    return denied
+                if not self._allow(f"location:{account['id']}",
+                                   rl["locationPerTenMinutes"], 600):
+                    return fail(429, "location_rate_limited")
+                row, why = self.wm.set(account["id"], body or {})
+                if row is None:
+                    return fail({"bad_country": 422, "bad_region": 422,
+                                 "bad_city": 422,
+                                 "account_absent": 404}.get(why, 400), why)
+                return ok(location=row)
+
+            if path == "/api/account/location/remove":
+                denied = acct_gate()
+                if denied:
+                    return denied
+                if self.wm.remove(account["id"]) == "no_location":
+                    return fail(404, "no_location")
                 return ok(removed=True)
 
             if path == "/api/auth/logout":

@@ -67,6 +67,13 @@
       "listMax": 24
     },
 
+    "worldmap": {
+      "countryMax": 60,
+      "regionMax": 60,
+      "cityMax": 80,
+      "listMax": 40
+    },
+
     "scoring": {
       "version": "pb-v3.0",
       "basePerPost": 10,
@@ -127,7 +134,9 @@
       "xverifyPerTenMinutes": 10,
       "artworksPerMinute": 30,
       "uploadPerTenMinutes": 8,
-      "votePerTenMinutes": 12
+      "votePerTenMinutes": 12,
+      "worldmapPerMinute": 30,
+      "locationPerTenMinutes": 30
     },
 
     "account": {

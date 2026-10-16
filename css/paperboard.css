@@ -383,3 +383,21 @@
 @media (width ≤ 720px) {
   .art-grid { grid-template-columns: 1fr }
 }
+
+/* — the world map: where the paper comes from (feature two) —
+   stroke over fill, tabular chips, and the press-sheet vow holds. */
+.worldmap { background: var(--ink) }
+.wm__map { display: block; width: min(560px, 100%); margin: var(--sp-2) auto;
+  border: 1px solid var(--line) }
+.wm__grid { stroke: var(--line); stroke-width: .5; fill: none }
+.wm__land { fill: none; stroke: var(--line-2); stroke-width: 1.5 }
+.wm__chips { display: flex; flex-wrap: wrap; gap: var(--sp-1) .9rem;
+  border-top: 1px solid var(--line); padding-top: var(--sp-2) }
+.wm__chip { font-family: var(--mono); font-size: .66rem; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--cream-dim);
+  border-bottom: 1px solid var(--line); padding: .2em .1em }
+.wm__chip b { color: var(--cream); font-variant-numeric: tabular-nums }
+.wm__seat-doors { display: flex; gap: var(--sp-2); flex-wrap: wrap }
+@media (width ≤ 720px) {
+  .wm__map { width: 100% }
+}

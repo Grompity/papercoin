@@ -744,3 +744,107 @@ export function startArtboard() {
 
   return artLoad();
 }
+
+/* ============================================================
+   worldmap — where the paper comes from (feature two). the public
+   face is two words per country (country, count); this corner draws
+   the crowd's shape and lets a member set or drop their own seat.
+   ============================================================ */
+
+const WM_KEYS = {
+  bad_country: "a country is the one word a seat needs (up to 60 marks)",
+  bad_region: "that region is too long",
+  bad_city: "that city is too long",
+  account_absent: "that account is gone from the ledger",
+  not_authenticated: "sign in at the board first — the seat knows you by cookie",
+  no_location: "no seat to remove — the map never held one",
+  location_rate_limited: "the map is patient — a few seat changes per ten minutes",
+};
+
+function wmSlot(text) {
+  const el = document.querySelector('[data-set="wm-state"]');
+  if (el) el.textContent = text;
+}
+
+async function wmCrowd() {
+  const j = await get("/api/worldmap");
+  return { countries: j.countries ?? [], total: j.total ?? 0 };
+}
+
+async function wmSeat() {                    /* a seat, none, or the door */
+  try {
+    const j = await get("/api/account/location");
+    return j.location ?? null;
+  } catch (err) {
+    return undefined;                        /* the door answered; no seat talk */
+  }
+}
+
+function wmRender(crowd) {
+  const mount = document.getElementById("pb-world");
+  if (!mount) return;
+  if (!crowd.countries.length) {
+    mount.innerHTML = `
+      <div class="state"><p>the map is bare — set a seat and it gets a dot.</p></div>`;
+  } else {
+    mount.innerHTML = `<div class="wm__chips">${crowd.countries.map((c) =>
+      `<span class="wm__chip">${artEsc(c.country)} <b>${c.count}</b></span>`
+    ).join("")}</div>`;
+  }
+  const n = crowd.countries.length;
+  const t = crowd.total;
+  wmSlot(`the map: ${n} ${n === 1 ? "place" : "places"}, ${t} ${t === 1 ? "seat" : "seats"}`);
+}
+
+async function wmLoad() {
+  let crowd = null;
+  try { crowd = await wmCrowd(); } catch { /* offline below */ }
+  if (crowd === null) { wmSlot("the map: offline"); return; }
+  wmRender(crowd);
+  const seat = await wmSeat();
+  const form = document.getElementById("pb-seat-form");
+  if (form && seat) {
+    form.elements.country.value = seat.country ?? "";
+    form.elements.region.value = seat.region ?? "";
+    form.elements.city.value = seat.city ?? "";
+  }
+}
+
+export function startWorldMap() {
+  const mount = document.getElementById("pb-world");
+  const form = document.getElementById("pb-seat-form");
+  if (!mount) return Promise.resolve();
+
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const f = new FormData(form);
+      const country = String(f.get("country") ?? "").trim();
+      if (!country) { verdict("a seat needs a country", false, "wm-err"); return; }
+      try {
+        await post("/api/account/location", {
+          country,
+          region: String(f.get("region") ?? "").trim(),
+          city: String(f.get("city") ?? "").trim(),
+        });
+        await wmLoad();
+        verdict("seat set.", true, "wm-err");
+      } catch (err) {
+        const why = (err.payload && err.payload.error) || "seat failed";
+        verdict(WM_KEYS[why] || why, false, "wm-err");
+      }
+    });
+    const drop = document.getElementById("pb-seat-drop");
+    if (drop) drop.addEventListener("click", async () => {
+      try {
+        await post("/api/account/location/remove", {});
+        await wmLoad();
+        verdict("seat dropped.", true, "wm-err");
+      } catch (err) {
+        const why = (err.payload && err.payload.error) || "drop failed";
+        verdict(WM_KEYS[why] || why, false, "wm-err");
+      }
+    });
+  }
+  return wmLoad();
+}

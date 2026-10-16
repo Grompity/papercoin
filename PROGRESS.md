@@ -6,6 +6,52 @@ where the tree stands at each mile. batteries run on BOTH interpreters:
 
 ---
 
+## Milestone D — World Map, the crowd's shape (today)
+
+**Local commit:** this one (the pair with C's two still stand as told).
+
+**Backend**
+- one additive table (`member_locations`, PK is the account — one seat per
+  member, upserted): country required, region/city optional, never an address
+  and never a coordinate — the precision asked for is the precision kept.
+- `worldmap.py`: set/remove/view/aggregate; the public face speaks exactly two
+  words per row (`country`, `count`) — no account id, no email, no session
+  crosses it. The counting forgives the case-twins (GROUP BY COLLATE NOCASE);
+  the name it prints is the group's deterministic canon (MIN of the spellings).
+- routes: GET `/api/worldmap` (aggregate + total, rate-bucketed) and GET
+  `/api/account/location` (own seat, slim door) in the GET branch; POST
+  `/api/account/location` (upsert, `acct_gate`, its own bucket) and POST
+  `/api/account/location/remove` in the POST branch — the day's route lesson
+  applied before the fact, and the battery now pins it branch-relatively.
+- config: `worldmap` block (60/60/80/40) + two rate keys; validation keys
+  bad_country/bad_region/bad_city/account_absent (422/404) and no_location
+  answers a bare-handed removal with an honest 404.
+
+**Front half**
+- `js/components/worldmap.js` in the section idiom + a hand-drawn hairline SVG
+  world (six stroked lands, a grid — zero assets, zero dependencies); the
+  runtime in `paperboard.js` (chips from the aggregate, a seat form with set +
+  drop doors, every server key with house words); mast gains "World map".
+
+**Route-level evidence (live server, curl + real Chrome):**
+- empty map `{countries: [], total: 0}` 200; the write door 401s before state.
+- a seat with a leading space comes back trimmed; own-seat GET answers it.
+- two members spelled Iceland two ways — the aggregate answered
+  `[{"country": "Iceland", "count": 2}], total: 2` — one place, one canon.
+- remove twice: `{removed: true}` 200 then `{error: "no_location"}` 404.
+- the DOM after a reload: chips `Iceland 1`, the slot reads its truth, six
+  lands drawn, the cookie-less submit put the door-copy on the page.
+- the mast's overflow at pane width is the P6B design (scrollable index,
+  scrollbar hidden), not a break; the plural "1 seat" was caught and mended.
+
+**Battery:** P6D section (five checks incl. the case-twin truth and
+branch-relative lane pins) + the front pins — **failures: 0, exit 0, both
+interpreters**. A pin that died honestly when the boot-import gained its third
+name proves pins must evolve with the shape, not around it.
+
+**State:** local only; VPS still waits for the owner's word (one more table,
+one more first-boot nothing — no new dirs needed for the map).
+
 ## Milestone C — Artboard, the community wall (today)
 
 **Local commits:** `c03000b` (backend) + the front-half commit this one lands with.

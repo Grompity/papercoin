@@ -2688,7 +2688,7 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           and 'import { Artboard }' in _mains and "Artboard()," in _mains
           and (_mains.index("FrontPage(),") < _mains.index("Artboard(),")
                < _mains.index("Scoring(),"))
-          and 'import { startPaperboard, startArtboard }' in _mains
+          and 'import { startPaperboard, startArtboard, startWorldMap }' in _mains
           and "startArtboard();" in _mains
           and all(_k in uxjs for _k in ("/api/artworks", "/api/artwork/start",
                                         "/api/artwork/vote"))
@@ -2696,6 +2696,113 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           and ".art-grid" in _cssB and ".art__frame" in _cssB
           and "box-shadow" not in _cssB.split("artboard: the community wall")[1],
           "the sheet's wall drifted")
+
+    # ---- P6D WorldMap: the crowd's shape, never the crowd's names ------
+    from paperboard.worldmap import WorldMap as _Wm
+    _wdb = dbmod.DB(":memory:", verbose=False)
+    _ws = svc.Service(_wdb, None, stY2)
+    _wm = _Wm(_wdb, stY2)
+    _w1 = _ws.create_or_touch_account("map1@paperboard.test")[0]["id"]
+    _w2 = _ws.create_or_touch_account("map2@paperboard.test")[0]["id"]
+    _w3 = _ws.create_or_touch_account("map3@paperboard.test")[0]["id"]
+    _wr1, _we1 = _wm.set(_w1, {"country": "  iceland ",
+                               "region": "capital region", "city": "reykjavik"})
+    _wr2, _we2 = _wm.set(_w2, {"country": "Iceland"})   # the case-twin, bare
+    _wr3, _we3 = _wm.set(_w3, {"country": "new zealand",
+                               "region": "south island", "city": ""})
+    _wcfg = stY2.pb.get("worldmap") or {}
+    check("P6D the seat is a word, not a coordinate: set() trims (a kindness,"
+          " not a rewrite) and upserts — one row per member, the ledger's"
+          " whole count three, and the member's own words round-trip in the"
+          " row's country/region/city (never an address, never a pair of"
+          " numbers the feature never asked for)",
+          _we1 is None and _we2 is None and _we3 is None
+          and _wr1["country"] == "iceland" and _wr1["region"] == "capital region"
+          and _wdb.conn.execute(
+              "SELECT COUNT(*) FROM member_locations").fetchone()[0] == 3
+          and set(_wr1.keys()) == {"country", "region", "city", "updated_at"},
+          str((_we1, _we2, _we3)))
+    _wagg = _wm.aggregate()
+    check("P6D the public face is aggregate-only and case-forgiving: iceland"
+          " and Iceland count as ONE place (the counting forgives, the naming"
+          " picks the group's deterministic canon — the alphabetically-first"
+          " spelling), the most-crowded lead, and the two words it ever speaks"
+          " are country and count — no account, no email, no session crosses"
+          " the public door (the JSON of the whole face carries neither @ nor"
+          " the word account, and the total is the ledger's own three)",
+          [(r["country"], r["count"]) for r in _wagg]
+          == [("Iceland", 2), ("new zealand", 1)]
+          and _wm.total() == 3
+          and all(set(r.keys()) == {"country", "count"} for r in _wagg)
+          and "@" not in json.dumps(_wagg)
+          and "account" not in json.dumps(_wagg).lower()
+          and len(_wm.aggregate(999)) <= _wcfg["listMax"], json.dumps(_wagg))
+    _wupd, _wue = _wm.set(_w1, {"country": "norway", "region": "", "city": "bergen"})
+    check("P6D an update replaces, never appends (norway/bergen answers and"
+          " the ledger still holds three rows not four), and remove() twice"
+          " speaks removed then no_location — the honest cousin of deferred:"
+          " a truth about the seat, never an error dressed up",
+          _wue is None and _wupd["country"] == "norway"
+          and _wdb.conn.execute(
+              "SELECT COUNT(*) FROM member_locations").fetchone()[0] == 3
+          and _wm.view(_w1)["city"] == "bergen"
+          and _wm.remove(_w1) == "removed" and _wm.remove(_w1) == "no_location"
+          and _wm.view(_w1) is None, str((_wue, _wupd)))
+    _wbad = [_wm.set(_w2, {"country": "  "})[1],
+             _wm.set(_w2, {"country": "z" * (_wcfg["countryMax"] + 1)})[1],
+             _wm.set(_w2, {"country": "x",
+                           "region": "y" * (_wcfg["regionMax"] + 1)})[1],
+             _wm.set(_w2, {"country": "x", "region": "y",
+                           "city": "w" * (_wcfg["cityMax"] + 1)})[1],
+             _wm.set(9999, {"country": "nowhere"})[1]]
+    check("P6D validation refuses, never trusts: a whitespace country is a"
+          " bad_country (the seat needs a WORD), every length wall speaks its"
+          " own key (bad_country, bad_region, bad_city — all three read from"
+          " the shipped config, not from constants), an unknown author is an"
+          " account_absent, and none of them moves the crowd's count",
+          _wbad == ["bad_country", "bad_country", "bad_region", "bad_city",
+                   "account_absent"]
+          and _wm.total() == 2, str(_wbad))
+    check("P6D shape pins: the seat table rides the SCHEMA itself (a fresh"
+          " :memory: DB proves it), the three public doors and the two write"
+          " doors exist in the router (the seat's GET in the GET branch, its"
+          " POST pair in the POST branch — the lesson of the day, pinned by"
+          " branch-relative position now, not only by presence), the rate"
+          " keys ride the shipped config, and the module read the config's"
+          " numbers at boot (the caps are the config's, not the test's)",
+          "CREATE TABLE IF NOT EXISTS member_locations" in _dbsrc
+          and all(_k in _routesrc for _k in
+                  ('"/api/worldmap"', '"/api/account/location"',
+                   '"/api/account/location/remove"'))
+          and _routesrc.index('if method == "GET":')
+          < _routesrc.index('if path == "/api/worldmap":')
+          < _routesrc.index('if method == "POST":')
+          and _routesrc.index('if path == "/api/account/location/remove":')
+          > _routesrc.index('if method == "POST":')
+          and all(_k in stY2.pb["ratelimit"]
+                  for _k in ("worldmapPerMinute", "locationPerTenMinutes"))
+          and _wm.country_max == _wcfg["countryMax"]
+          and _wm.city_max == _wcfg["cityMax"], "the map's shape drifted")
+    _wjs = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                  "components", "worldmap.js"), encoding="utf-8").read()
+    check("P6D the map on the sheet: the section exists and the mast points"
+          " at it (one real anchor), main mounts it after the artboard and"
+          " before the scoring, the app boots its own corner (startWorldMap"
+          " answers to the page's boot), it speaks to exactly the three doors"
+          " the server ships, and the map's CSS keeps the press-sheet vow —"
+          " stroke over fill, tabular chips, and zero box-shadow in the whole"
+          " block",
+          'id="worldmap"' in _wjs and 'href="#worldmap"' in _masts
+          and _mains.index("Artboard(),") < _mains.index("WorldMap(),")
+          < _mains.index("Scoring(),")
+          and "startWorldMap" in _mains
+          and all(_k in uxjs for _k in ("/api/worldmap",
+                                        "/api/account/location/remove",
+                                        '"/api/account/location"'))
+          and ".wm__chips" in _cssB and ".wm__land" in _cssB
+          and "box-shadow" not in _cssB.split("the world map:")[1],
+          "the sheet's map drifted")
+    _wdb.close()
 
     print("failures:", len(FAILURES))
     return len(FAILURES)
