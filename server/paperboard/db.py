@@ -327,6 +327,36 @@ CREATE TABLE IF NOT EXISTS x_usage (
   follow_checks       INTEGER NOT NULL DEFAULT 0,
   follow_cache_hits   INTEGER NOT NULL DEFAULT 0
 );
+
+-- Artboard (feature one): the community wall rides on its own two tables —
+-- submissions keeps its X-era meaning untouched, no overloading. an artwork
+-- row is a pointer plus a promise: the bytes live on disk under the data
+-- dir, this row is their ledger. the votes table is the gallery's only
+-- truth, and UNIQUE(artwork_id, account_id) is the one-vote wall; a re-vote
+-- that changes nothing is DEFERRED, not an error. deleting an artwork
+-- sweeps its votes, and the file unlink is best-effort service-side.
+CREATE TABLE IF NOT EXISTS artworks (
+  id          INTEGER PRIMARY KEY,
+  account_id  INTEGER NOT NULL,
+  title       TEXT NOT NULL,
+  credit      TEXT NOT NULL DEFAULT '',
+  note        TEXT NOT NULL DEFAULT '',
+  file        TEXT NOT NULL,
+  bytes       INTEGER NOT NULL DEFAULT 0,
+  created_at  REAL NOT NULL,
+  FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+CREATE TABLE IF NOT EXISTS artwork_votes (
+  id          INTEGER PRIMARY KEY,
+  artwork_id  INTEGER NOT NULL,
+  account_id  INTEGER NOT NULL,
+  created_at  REAL NOT NULL,
+  UNIQUE (artwork_id, account_id),
+  FOREIGN KEY (artwork_id) REFERENCES artworks(id) ON DELETE CASCADE,
+  FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+CREATE INDEX IF NOT EXISTS ix_artworks_created ON artworks(created_at);
+CREATE INDEX IF NOT EXISTS ix_artworks_account ON artworks(account_id);
 """
 
 

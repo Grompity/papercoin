@@ -2554,6 +2554,124 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           and uxbd.count("Can't find your sign-in email?") == 2,
           "voice or anchor drifted")
 
+    # ---- P6C Artboard: the wall, the cap, and the fifth state ----------
+    # the wall rides on its own two tables; the bytes live under a temp dir
+    # so the test leaves no residue; every figure asserted is read from the
+    # shipped config first — a silent retune must stay silent under this run.
+    import shutil as _shutil
+    import binascii as _b64
+    import tempfile as _tf
+    from paperboard.artboard import Artboard as _Art, sniff as _sniff
+    _adir = _tf.mkdtemp(prefix="p6c-")
+    os.environ["PAPER_UPLOADS_DIR"] = _adir
+    _adb = dbmod.DB(":memory:", verbose=False)
+    _aart = _Art(_adb, stY2)
+    _asvc = svc.Service(_adb, None, stY2)
+    _aown = _asvc.create_or_touch_account("art@paperboard.test")[0]["id"]
+    _aten = _asvc.create_or_touch_account("voter@paperboard.test")[0]["id"]
+    _png_b64 = _b64.b2a_base64(
+        b"\x89PNG\r\n\x1a\nIEND\xaeB\x60\x82").decode("ascii")
+    _abcap = (stY2.pb.get("artboard") or {}).get("maxPerDay", 3)
+    _errs = []
+    for _i in range(_abcap + 1):
+        _errs.append(_aart.add(_aown, {"title": "ink %d" % _i,
+                                        "data_b64": _png_b64})[1])
+    _rows = _aart.list()
+    check("P6C the wall takes ink: add() sniffs the png by its magic bytes,"
+          " stores bytes under the uploads dir, and the row's ledger matches"
+          " — and the cap speaks at hang number " + str(_abcap + 1)
+          + " of the day (maxPerDay read from shipped config, not a constant)",
+          _errs == [None] * _abcap + ["daily_cap"]
+          and len(os.listdir(_adir)) == _abcap
+          and _rows[0]["title"] == "ink %d" % (_abcap - 1)   # newest first
+          and _rows[0]["likes"] == 0
+          and _aart.count() == _abcap
+          and _sniff(_b64.a2b_base64(_png_b64)) == "png",
+          str(_errs))
+    _v1 = _aart.vote(_rows[0]["id"], _aown)
+    _v2 = _aart.vote(_rows[0]["id"], _aown)
+    _v3 = _aart.vote(_rows[0]["id"], _aten)
+    check("P6C votes: first is added, a re-vote is DEFERRED (the same truthful"
+          " 200 the mail lane speaks — the UNIQUE wall forbids the double-count"
+          " at the DB, not at the courtesy), and the count is always the votes"
+          " table's truth: two accounts, one vote each, count 2 at the end",
+          _v1 == ("added", 1) and _v2 == ("duplicate", 1)
+          and _v3 == ("added", 2)
+          and _aart.list(sort="liked")[0]["id"] == _rows[0]["id"]
+          and _aart.list(sort="liked")[0]["likes"] == 2, str((_v1, _v2, _v3)))
+    check("P6C ownership & erasure: only the author takes paper down (the"
+          " not_owner key rides to a 403 route-side), the file leaves with the"
+          " row, and a removed wall piece cannot keep a vote alive",
+          _aart.remove(_rows[0]["id"], _aten) == "not_owner"
+          and _aart.remove(_rows[0]["id"], _aown) == "removed"
+          and _aart.count() == _abcap - 1
+          and len(os.listdir(_adir)) == _abcap - 1
+          and _aart.remove(_rows[0]["id"], _aown) == "art_absent"
+          and _adb.conn.execute(
+              "SELECT COUNT(*) FROM artwork_votes WHERE artwork_id=?",
+              (_rows[0]["id"],)).fetchone()[0] == 0, "wall geometry drifted")
+    _bad = [_aart.add(_aten, {"title": "x", "data_b64": "!!!!"})[1],
+            _aart.add(_aten, {"title": "x",
+                              "data_b64": _b64.b2a_base64(
+                                  b"notanimage").decode("ascii")})[1],
+            _aart.add(_aten, {"title": "y" * 90, "data_b64": _png_b64})[1],
+            _aart.add(9999, {"title": "x", "data_b64": _png_b64})[1]]
+    check("P6C validation refuses, never trusts: a lie about bytes is refused"
+          " (bad_image_data where the decoder is strict, bad_image_type where"
+          " it is generous — both are walls, the key tells which), an"
+          " oversized title is a bad_title, an unknown author is an"
+          " account_absent, and none of them leaves a file or a row behind",
+          _bad[0] in ("bad_image_data", "bad_image_type")
+          and _bad[1] == "bad_image_type"
+          and _bad[2] == "bad_title" and _bad[3] == "account_absent"
+          and _aart.count() == _abcap - 1 and len(os.listdir(_adir)) == _abcap - 1,
+          str(_bad))
+    check("P6C the file lane's walls: served() speaks by content not by name,"
+          " the name shape is the service's own signature (a plus account plus"
+          " hex plus a real extension), and nothing else gets bytes — the"
+          " router only calls served(), so these walls ARE the gate",
+          _aart.served(_rows[1]["file"]) is not None
+          and _aart.served(_rows[1]["file"])[1] == "image/png"
+          and _aart.served("a1-2-deadb.png") is None
+          and _aart.served("nope.txt") is None
+          and _aart.served("a1-2-abcdefgh.evil.png") is None, "file walls")
+    _dbsrc = open(os.path.join(os.path.dirname(__file__), "paperboard", "db.py"),
+                  "r", encoding="utf-8").read()
+    check("P6C shape pins: the schema ships the two tables plus the UNIQUE"
+          " wall inside the SCHEMA itself (a fresh :memory: DB proves it),"
+          " the five lanes exist in the router (GET /api/artworks, the three"
+          " POST lanes, the /artworks/ file branch), and Artboard read the"
+          " shipped config's numbers at boot (cap " + str(_abcap)
+          + ", the byte ceiling, and the list cap all match the block)",
+          _adb.conn.execute(
+              "SELECT COUNT(*) FROM sqlite_master WHERE name IN"
+              " ('artworks','artwork_votes')").fetchone()[0] == 2
+          and "UNIQUE (artwork_id, account_id)" in _dbsrc
+          and all(_k in _routesrc for _k in
+                  ('"/api/artworks"', '"/api/artwork/start"',
+                   '"/api/artwork/vote"', '"/api/artwork/remove"',
+                   '"/artworks/"'))
+          and _aart.cap == _abcap
+          and _aart.max_bytes == (stY2.pb.get("artboard") or {})["maxBytes"]
+          and _aart.list_max == (stY2.pb.get("artboard") or {})["listMax"]
+          and len(_aart.list(limit=999)) == _aart.count(), "shape drifted")
+    _vseg = (_routesrc.split("/api/artwork/vote")[1]
+             .split("/api/artwork/remove")[0])
+    check("P6C the route envelope's fifth-state truth (source-level): the vote"
+          " lane ships deferred:true on the duplicate branch and that is the"
+          " whole of it — the doctrine stays one sentence wide in the router",
+          "deferred=True" in _vseg and _vseg.count("deferred") == 1,
+          "doctrine drifted")
+    _aart.remove(_rows[1]["id"], _aown)
+    _aart.remove(_rows[2]["id"], _aown)
+    check("P6C the wall sweeps clean: with every author's paper removed the"
+          " count is zero and the uploads dir is empty — the file is never"
+          " the survivor of a funeral, the row's departure is the truth",
+          _aart.count() == 0 and os.listdir(_adir) == [], "sweep drifted")
+    _adb.close()
+    os.environ.pop("PAPER_UPLOADS_DIR", None)
+    _shutil.rmtree(_adir, ignore_errors=True)
+
     print("failures:", len(FAILURES))
     return len(FAILURES)
 

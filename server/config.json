@@ -57,6 +57,16 @@
       "periodLabel": "weekly-friday",
       "allowDuplicateWallet": false
     },
+
+    "artboard": {
+      "maxPerDay": 3,
+      "maxBytes": 5000000,
+      "titleMax": 80,
+      "creditMax": 60,
+      "noteMax": 500,
+      "listMax": 24
+    },
+
     "scoring": {
       "version": "pb-v3.0",
       "basePerPost": 10,
@@ -114,7 +124,10 @@
       "leaderboardPerMinute": 30,
       "magicSendPerTenMinutes": 6,
       "submitPerTenMinutes": 8,
-      "xverifyPerTenMinutes": 10
+      "xverifyPerTenMinutes": 10,
+      "artworksPerMinute": 30,
+      "uploadPerTenMinutes": 8,
+      "votePerTenMinutes": 12
     },
 
     "account": {

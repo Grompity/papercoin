@@ -12,6 +12,7 @@ import secrets
 import time
 
 from .accounts import normalize_email
+from .artboard import Artboard
 from .settings import SITE_DIR
 from .xapi import make_pkce, XError
 
@@ -25,6 +26,7 @@ _TYPES = {
     ".jpeg": "image/jpeg",
     ".jpg": "image/jpeg",
     ".webp": "image/webp",
+    ".gif": "image/gif",
     ".ico": "image/x-icon",
 }
 
@@ -38,6 +40,7 @@ class Router:
         self.db = db
         self.x = x
         self.clock = time.time
+        self.art = Artboard(db, settings)
         self._rl = {}
 
     # ------------------------------------------------------------ rate limits
@@ -87,6 +90,14 @@ class Router:
                 return 429, {"error": "rate_limited"}
             return self._api(method, path, query, headers, cookies, body,
                              user, comp, cid, now, mode, account, session, ip)
+        if path.startswith("/artworks/"):
+            # the wall's bytes ride beside the DB, not beside the site: the
+            # data dir is the authority for the files, the DB row is their
+            # ledger, and this single branch is the only door between them.
+            got = self.art.served(path[len("/artworks/"):])
+            if got is None:
+                return 404, {"error": "art_absent"}
+            return 200, got[0], got[1]
         if path == "/":
             return self._static("index.html")
         if path == "/admin":
@@ -457,6 +468,51 @@ class Router:
                                 reason, 400), payload, None
                 return ok(submission=res["submission"], mode=mode)
 
+            if path == "/api/artwork/start":
+                denied = acct_gate()
+                if denied:
+                    return denied
+                if not self._allow(f"upload:{account['id']}",
+                                   rl["uploadPerTenMinutes"], 600):
+                    return fail(429, "upload_rate_limited")
+                row, why = self.art.add(account["id"], body or {})
+                if row is None:
+                    return fail({"bad_title": 422, "bad_credit": 422,
+                                 "bad_note": 422, "too_large": 422,
+                                 "bad_image_data": 422, "bad_image_type": 422,
+                                 "daily_cap": 429, "account_absent": 404,
+                                 "store_failed": 503}.get(why, 400), why)
+                return 201, {"artwork": row}, None
+
+            if path == "/api/artwork/vote":
+                denied = acct_gate()
+                if denied:
+                    return denied
+                if not self._allow(f"vote:{account['id']}",
+                                   rl["votePerTenMinutes"], 600):
+                    return fail(429, "vote_rate_limited")
+                state, count = self.art.vote((body or {}).get("art_id"),
+                                            account["id"])
+                if state == "art_absent":
+                    return fail(404, "art_absent")
+                if state == "duplicate":
+                    # the doctrine again: a re-vote changed nothing, so the
+                    # answer is a truthful 200 that defers — not an error.
+                    return ok(voted=True, deferred=True, count=count)
+                return ok(voted=True, count=count)
+
+            if path == "/api/artwork/remove":
+                denied = acct_gate()
+                if denied:
+                    return denied
+                out = self.art.remove((body or {}).get("art_id"),
+                                       account["id"])
+                if out == "art_absent":
+                    return fail(404, "art_absent")
+                if out == "not_owner":
+                    return fail(403, "not_owner")
+                return ok(removed=True)
+
             if path == "/api/auth/logout":
                 s.end_session(cookies.get("PBSD"))
                 return ok(loggedOut=True)
@@ -507,6 +563,12 @@ class Router:
                                       (cookies["PBSD"],))
                     s.db.conn.commit()
                 return ok(loggedOut=True)
+            if path == "/api/artworks":
+                if not self._allow(f"artworks:{ip}",
+                                   rl["artworksPerMinute"], 60):
+                    return fail(429, "rate_limited")
+                return ok(artworks=self.art.list(query.get("sort") or "new"))
+
             if path == "/api/me/wallet":
                 if not user:
                     return fail(401, "not_connected")
