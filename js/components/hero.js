@@ -26,7 +26,6 @@ export function Hero() {
         <div class="hero__actions" data-reveal>
           <a class="btn btn--solid" href="#board" data-hero-connect>Join PAPERBOARD ↓</a>
           <a class="btn btn--pill" href="#buy">Buy ${cfg.ticker}</a>
-          <a class="btn btn--pill" href="#frontpage">The front page</a>
         </div>
 
         <div class="hero__art" data-reveal data-parallax data-parallax-depth="0.55">

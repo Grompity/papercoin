@@ -2685,9 +2685,9 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           " the server ships, and the press-sheet rule holds — the artboard's"
           " CSS block carries hairlines and tabular counts and zero box-shadow",
           'id="artboard"' in _arts and 'href="#artboard"' in _masts
-          and 'import { Artboard }' in _mains and "Artboard()," in _mains
-          and (_mains.index("FrontPage(),") < _mains.index("Artboard(),")
-               < _mains.index("Scoring(),"))
+          and 'import { Artboard }' in _mains and "Artboard()" in _mains
+          and (_mains.index("FrontPage()") < _mains.index("Artboard()")
+               < _mains.index("Scoring()"))
           and 'import { startPaperboard, startArtboard' in _mains
           and "startArtboard();" in _mains
           and all(_k in uxjs for _k in ("/api/artworks", "/api/artwork/start",
@@ -2793,8 +2793,8 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           " stroke over fill, tabular chips, and zero box-shadow in the whole"
           " block",
           'id="worldmap"' in _wjs and 'href="#worldmap"' in _masts
-          and _mains.index("Artboard(),") < _mains.index("WorldMap(),")
-          < _mains.index("Scoring(),")
+          and _mains.index("Artboard()") < _mains.index("WorldMap()")
+          < _mains.index("Scoring()")
           and "startWorldMap" in _mains
           and all(_k in uxjs for _k in ("/api/worldmap",
                                         "/api/account/location/remove",
@@ -2885,8 +2885,8 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           " the arcade's CSS keeps the press-sheet vow — hairline frames, ruled"
           " rows, tabular boards, zero box-shadow in the whole block",
           'id="arcade"' in _arjs and 'href="#arcade"' in _masts
-          and _mains.index("WorldMap(),") < _mains.index("Arcade(),")
-          < _mains.index("Scoring(),")
+          and _mains.index("WorldMap()") < _mains.index("Arcade()")
+          < _mains.index("Scoring()")
           and "startArcade" in _mains and "startArcade();" in _mains
           and all(_k in uxjs for _k in ('"/api/arcade"',
                                         "/api/arcade/leaderboard?game="))
@@ -2995,6 +2995,81 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           and "href=" not in _arjs2, "the desk drifted")
     _fdb.close()
 
+    # ---- P6R the redress: the spread folds; the index is the page --------
+    _nav = open(os.path.join(os.path.dirname(__file__), "..", "js", "nav.js"),
+                encoding="utf-8").read()
+    _dash = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                  "components", "homedash.js"), encoding="utf-8").read()
+    _hero = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                 "components", "hero.js"), encoding="utf-8").read()
+    check("P6R the fold is structural: exactly six folds exist in the mount"
+          " (home, standings, artboard, worldmap, arcade, tokens), the router"
+          " is the WHOLE navigation with no dependency (its file contains not"
+          " one import — the vow pinned as absence, the strongest form), it"
+          " speaks only the hash and the browser's own back/forward, and the"
+          " sections ride their folds unmoved (the six calls still stand in"
+          " the mount in the day's order — the redesign is the shelf, not"
+          " the print)",
+          _nav.count("import ") == 0
+          and all(('fold("' + _v + '"') in _mains for _v in
+                   ("home", "standings", "artboard", "worldmap", "arcade",
+                    "tokens"))
+          and all(_k in _nav for _k in ("VIEWS", "hashchange", "is-view",
+                                        "scrollIntoView", "is-in")),
+          "six folds, one file, zero dependencies")
+    check("P6R the index has exactly five doors and the mast speaks them:"
+          " five mast__link and no more (the seven-link sprawl is the"
+          " redesign's reason for existing), the five hrefs are the five"
+          " VIEWS names verbatim (mast and router must agree, or the battery"
+          " quarrels them), the brand rides the front page, the one action is"
+          " the buy pill, and the hero now carries one primary and one"
+          " secondary — the third pill was cut, its hop now lives as a door"
+          " on the press sheet where it earns its keep",
+          _masts.count('class="mast__link"') == 5
+          and all(('href="#' + _v + '"') in _masts for _v in
+                  ("standings", "artboard", "worldmap", "arcade", "tokens"))
+          and 'href="#home"' in _masts and "mast__cta" in _masts
+          and _hero.count('class="btn') == 2 and "#frontpage" not in _hero,
+          str([_masts.count('class="mast__link"'), _hero.count('class="btn')]))
+    check("P6R the press sheet is honest arithmetic: the dash is one section"
+          " whose id makes the home anchor true, it carries exactly four"
+          " doors and four slots (board, wall, map, floor — the four real"
+          " doors, no fifth invented figure), its runtime speaks to exactly"
+          " the endpoints those doors ride and tallies its answers aloud"
+          " ('N of 4 doors answered' — an offline press says so rather than"
+          " printing a lie), and no cell types a zero to look alive",
+          'id="home"' in _dash and _dash.count("dash__door") == 4
+          and all(_k in uxjs for _k in
+                  ("startHomeDash", 'data-slot="dash-board"',
+                   'data-slot="dash-art"', 'data-slot="dash-map"',
+                   'data-slot="dash-arcade"', " of 4 doors answered")),
+          "the sheet drifted")
+    check("P6R the redress keeps the press-sheet vow and the phone keeps its"
+          " own composition: the fold rule is display (not a hiding that"
+          " costs the observer its truth), the phone index is a five-column"
+          " thumb rail with a safe-area breath, the dash grid is woven and"
+          " unsymmetric (5/7 and 7/5 — four equal columns would have been"
+          " the AI tell the audit named), and zero box-shadow enters the"
+          " redress block's breath",
+          ".view.is-view { display: block }" in _cssB
+          and "repeat(5, 1fr)" in _cssB
+          and ".dash__cell--wide { grid-column: span 7 }" in _cssB
+          and "box-shadow" not in _cssB.split("the redress")[1],
+          "the redress drifted")
+    _runsrc = open(os.path.join(os.path.dirname(__file__), "run.py"),
+                    encoding="utf-8").read()
+    check("P6S the ten-thousand wall fell (the redesign's catch, before it"
+          " was a bug a browser would meet): the door now reads every body"
+          " below an honest cap in a loop that refuses to trust a socket's"
+          " first breath, an over-heavy body is DRAINED (keep-alive rides on"
+          " it, HTTP/1.1 says so in the header), the cap is a named constant"
+          " the artboard's own numbers could pass under, and the old silent"
+          " skip is gone from the file — no body may now be skipped, only"
+          " refused by a wall with a name",
+          "BODY_CAP = 8000000" in _runsrc
+          and "10000" not in _runsrc
+          and "_read_body" in _runsrc
+          and "while len(data) < length" in _runsrc, "the door regrew its wall")
     print("failures:", len(FAILURES))
     return len(FAILURES)
 

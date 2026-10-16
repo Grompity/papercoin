@@ -26,6 +26,12 @@ from paperboard.xapi import (MockXClient, FXTwitterXClient,
 
 TOKEN_IN_LOG = re.compile(r"token=[A-Z0-9]{8,}")   # redact at write time (P6C.16)
 
+BODY_CAP = 8000000   # the heaviest JSON body the door will read (P6R): the
+                     # artboard's 5MB photo, base64'd, with the JSON coat on.
+                     # the X-era door skipped bodies over ten kilobytes
+                     # entirely — a real hang answered bad_title because the
+                     # server never read the title at all.
+
 
 def make_provider(settings):
     """The provider factory — the mode decision lands HERE and only here:
@@ -80,15 +86,29 @@ class Handler(BaseHTTPRequestHandler):
         print("[pb]", time.strftime("%H:%M:%S", time.localtime()),
               TOKEN_IN_LOG.sub("token=<t>", fmt % args))
 
+    def _read_body(self, length):
+        """one lawful reader for every JSON body: a socket may hand bytes in
+        pieces, and the body must be taken whole (keep-alive rides on it)."""
+        data = b""
+        while len(data) < length:
+            part = self.rfile.read(length - len(data))
+            if not part:
+                break
+            data = data + part
+        return data
+
     def _go(self, method):
         parsed = urllib.parse.urlparse(self.path)
         query = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()}
         raw = self.headers.get("Content-Length")
+        length = int(raw) if raw else 0
         body = None
-        if raw and int(raw) > 0 and int(raw) < 10000:
-            data = self.rfile.read(int(raw))
+        if length > BODY_CAP:                       # too heavy to taste
+            self._read_body(length)                 # drain it; keep-alive honest
+            body = {}
+        elif length > 0:
             try:
-                body = json.loads(data)
+                body = json.loads(self._read_body(length))
             except ValueError:
                 body = {}
         headers = {k.lower(): v for k, v in self.headers.items()}

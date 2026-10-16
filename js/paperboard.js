@@ -960,3 +960,85 @@ export function startArcade() {
           `<option value="${artEsc(g.id)}">${artEsc(g.name)}</option>`).join("");
   });
 }
+
+/* ============================================================
+   the press sheet (the redesign's masthead) — four doors, all real:
+   the board's top three, the wall's freshest prints, the crowd's
+   chips, and the arcade's week. a dead door says so in one line;
+   nothing on this sheet was typed in by hand.
+   ============================================================ */
+
+function dashSlot(text) {
+  const el = document.querySelector('[data-set="dash-state"]');
+  if (el) el.textContent = text;
+}
+
+function dashSilence(sel, line, tag) {
+  const el = document.querySelector(sel);
+  if (el) el.innerHTML = `<${tag} class="dash__hush">${line}</${tag}>`;
+}
+
+export function startHomeDash() {
+  const section = document.getElementById("home");
+  if (!section) return Promise.resolve();
+  let answered = 0;
+  const tally = (alive) => {
+    if (alive) answered += 1;
+    dashSlot(`the press: ${answered} of 4 doors answered`);
+  };
+
+  get("/api/leaderboard").then((j) => {
+    const rows = (j && j.rows) || [];
+    const el = document.querySelector('[data-slot="dash-board"]');
+    if (el) {
+      el.innerHTML = rows.length
+        ? rows.slice(0, 3).map((r, i) => `
+            <li class="dash__row">
+              <span class="dash__rank">${i + 1}</span>
+              <b>${artEsc(r.username || "unnamed")}</b>
+              <span class="dash__pts">${fmt(r.points, 1)}</span>
+            </li>`).join("")
+        : `<li class="dash__hush">the board is empty — the first byline is unwritten.</li>`;
+    }
+    tally(true);
+  }, () => { dashSilence('[data-slot="dash-board"]', "the board is offline", "li"); tally(false); });
+
+  get("/api/artworks").then((j) => {
+    const items = (j && j.artworks) || [];
+    const el = document.querySelector('[data-slot="dash-art"]');
+    if (el) {
+      el.innerHTML = items.length
+        ? items.slice(0, 4).map((it) => `
+            <a class="dash__thumb" href="#artboard">
+              <img src="${artEsc(it.href)}" alt="${artEsc(it.title)}" loading="lazy" decoding="async">
+              <span>${artEsc(it.title)}${it.credit ? ` · ${artEsc(it.credit)}` : ""}</span>
+            </a>`).join("")
+        : `<p class="dash__hush">the wall is bare — the first print is unwung.</p>`;
+    }
+    tally(true);
+  }, () => { dashSilence('[data-slot="dash-art"]', "the wall is offline", "p"); tally(false); });
+
+  get("/api/worldmap").then((j) => {
+    const el = document.querySelector('[data-slot="dash-map"]');
+    if (el) {
+      const cs = (j && j.countries) || [];
+      el.innerHTML = cs.length
+        ? `<p class="wm__chips">${cs.slice(0, 3).map((c) =>
+            `<span class="wm__chip">${artEsc(c.country)} <b>${c.count}</b></span>`).join("")}</p>
+           <p class="dash__hush">${j.total} ${j.total === 1 ? "seat" : "seats"} on the map</p>`
+        : `<p class="dash__hush">no seats yet — the map is waiting.</p>`;
+    }
+    tally(true);
+  }, () => { dashSilence('[data-slot="dash-map"]', "the map is offline", "p"); tally(false); });
+
+  get("/api/arcade").then((j) => {
+    const el = document.querySelector('[data-slot="dash-arcade"]');
+    if (el) {
+      const games = (j && j.games) || [];
+      el.innerHTML = `<p class="dash__hush">${games.length} game${games.length === 1 ? "" : "s"} on the floor — the week closes ${artEsc(j.week)} at Friday midnight.</p>`;
+    }
+    tally(true);
+  }, () => { dashSilence('[data-slot="dash-arcade"]', "the arcade is offline", "p"); tally(false); });
+
+  return Promise.resolve();
+}

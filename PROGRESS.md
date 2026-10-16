@@ -30,7 +30,74 @@ Battery: P6E section (four checks: the Friday truth, the config's words, the
 tie-naming ladder, the dedupe wall, branch-relative lanes). Screenshots
 `/var/tmp/p6e-{desktop,mobile}.jpg`.
 
-## Milestone F — the points-week (today, this commit)
+## Milestone R — The redress: the spread folds (today, this commit)
+
+**The doctrine, honestly consulted:** `redesign-skill` (scan → diagnose → fix;
+the audit named our crimes: seven-link sprawl, no active-state in the nav, no
+back-in-the-mast thinking, endless stacked sections) and `taste-skill` v2 (the
+idea must come from the subject itself; headlines two lines; "wordmark, a few
+links, one action"; the phone layout must be its own composition; content must
+never stay hidden behind a script). Node is absent on this box, so the skill's
+own `inspect.mjs` could not run — its declared escape applied: real browser,
+screenshots, and a written critique stood in. No claim is made that was not
+measured.
+
+**The idea, one sentence:** on this page, *the broadsheet itself* becomes the
+navigation — the spread folds into six pages, the mast is the masthead, and the
+index that a paper prints at the top becomes a rail a thumb can reach at the
+bottom on the phone.
+
+**The new architecture (client-side, zero dependencies):**
+- six folds in the mount (home, standings, artboard, worldmap, arcade, tokens) —
+  `js/nav.js` is the whole router: hash + `hashchange` + the browser's own
+  back/forward. Its file contains **not one import**, and the battery pins that
+  absence. Deep-links work (a cold load at `#arcade` opened that fold and lit
+  its nav item, verified in the browser).
+- the sections ride their folds **untouched** — the redesign is the shelf, not
+  the print (the six section calls still stand in the mount in the same order;
+  two order-pins had to evolve when the fold helper swallowed their trailing
+  commas, and they now probe the call name itself).
+- the mast went from seven links to **five destinations, a wordmark that rides
+  home, and one action** (the buy pill) — the skill's navigation law verbatim.
+- `#tokens` folds Scoring + TheBill + Buy; the front page's own table lives
+  under Standings; the sign-in desk rides home, where a returning member lands.
+
+**The front page became a masthead:** the new `HomeDash` (four cells, one woven
+unsymmetric 5/7–7/5 grid — four equal columns would have been the tell the
+audit named) and four REAL doors: `/api/leaderboard`, `/api/artworks`,
+`/api/worldmap`, `/api/arcade`. Nothing is typed in; the sheet tallies itself
+aloud ("the press: N of 4 doors answered"); an empty board reads "the first
+byline is unwritten," never a fake zero. The hero's third CTA was cut — one
+primary, one secondary — its hop now lives as a door on the sheet.
+
+**Caught in the doing (the real catch of the chapter):** the ten-thousand
+wall. `run.py` skipped any JSON body over 10,000 bytes entirely (and left it
+undrained on an HTTP/1.1 connection). A real 53KB photo hang would have answered
+`bad_title` — the server had never read the title at all. `BODY_CAP 8000000`, a
+loop reader that trusts no socket's first breath, and a drain for the refused:
+the silly pose hung at 53,422 live bytes on the file lane answers 201 now.
+
+**Mobile is its own composition:** at ≤720 the five-destination index rides a
+fixed thumb rail at the bottom (hairline top, safe-area breath, active item
+lit), the mast top keeps only the wordmark and the pill, the dash stacks to
+one column, and the footer gets a clearance for the rail.
+
+**The reveal doctrine enforced:** a fold that opens hands its own content the
+`is-in` class — the IntersectionObserver may have met those nodes only behind
+`display:none`, and the audit's law says content may never stay hidden because
+a script blinked.
+
+**Gate:** P6R (five checks — the fold structure, the five doors, the honest
+sheet's arithmetic, the redress's own vow incl. zero `box-shadow` in its
+breath) + P6S (the wall that fell must not regrow) — **failures: 0, exit 0,
+both interpreters**, twice. Route rounds unchanged (every API answer identical
+— the reader was the only core touch).
+
+**Screens:** `before-{desktop,mobile}.jpg` (the endless crawl) against
+`after-{desktop-home,mobile-home,desktop-standings,desktop-artboard,
+mobile-artboard,mobile-tokens}.jpg`.
+
+## Milestone F — the points-week (today, commit c14ccf4)
 
 **The lane:** POST `/api/arcade/score` behind the account door, its own bucket
 (`scorePerTenMinutes` 12/10min).

@@ -439,3 +439,57 @@
   background: transparent; color: var(--cream);
   font-family: var(--mono); font-size: .7rem; letter-spacing: .1em }
 .ar__score option { background: var(--ink-2); color: var(--cream) }
+
+/* — the redress (P6R): the spread folds; the index is the page.
+   six views, one visible at a time — a broadsheet shows one page, not the
+   whole stack. the dash is the one new composition: a woven, unsymmetric
+   masthead of real figures. on the phone the index rides at the thumb.
+   the press-sheet vow holds: hairline over shadow, scale over noise. */
+.view { display: none }
+.view.is-view { display: block }
+.mast__link.is-active { color: var(--cream) }
+.mast__link.is-active::after { right: 0 }
+.dash__grid { display: grid; grid-template-columns: repeat(12, 1fr);
+  gap: var(--sp-4) var(--sp-3); margin-top: var(--sp-4) }
+.dash__cell { grid-column: span 5; border-top: 2px solid var(--cream);
+  padding-top: var(--sp-2); margin: 0 }
+.dash__cell--wide { grid-column: span 7 }
+.dash__cell--broad { grid-column: span 7 }
+.dash__cell--lean { grid-column: span 5 }
+.dash__head { font-family: var(--mono); font-size: var(--fs-kicker);
+  letter-spacing: .18em; text-transform: uppercase; color: var(--cream-dim);
+  margin: 0 }
+.dash__peel { list-style: none; display: grid; margin: var(--sp-2) 0 0;
+  padding: 0 }
+.dash__row { display: flex; align-items: baseline; gap: var(--sp-2);
+  border-bottom: 1px solid var(--line); padding: .45em .1em;
+  font-variant-numeric: tabular-nums }
+.dash__rank { font-family: var(--serif); font-weight: 900; width: 1.4em;
+  color: var(--green) }
+.dash__pts { margin-left: auto; font-weight: 700 }
+.dash__thumbs { display: grid; grid-template-columns: 1fr 1fr;
+  gap: .8rem; margin: var(--sp-2) 0 0 }
+.dash__thumb { display: block; text-decoration: none }
+.dash__thumb img { display: block; width: 100%; height: auto;
+  border: 1px solid var(--line) }
+.dash__thumb span { display: block; font-family: var(--mono);
+  font-size: var(--fs-caption); letter-spacing: .08em; color: var(--cream-dim);
+  margin-top: .35em }
+.dash__door { display: inline-block; margin-top: var(--sp-3);
+  font-family: var(--mono); font-size: var(--fs-kicker); letter-spacing: .16em;
+  text-transform: uppercase; color: var(--cream-dim); text-decoration: none;
+  border-bottom: 1px solid var(--green-ink); padding-bottom: .2em;
+  transition: color var(--dur-1) var(--ease-out) }
+.dash__door:hover { color: var(--green) }
+.dash__hush { color: var(--cream-faint); font-size: .8rem; margin: var(--sp-2) 0 0 }
+@media (width ≤ 720px) {
+  .dash__grid { grid-template-columns: 1fr }
+  .dash__cell, .dash__cell--wide, .dash__cell--broad, .dash__cell--lean {
+    grid-column: auto }
+  .mast__links { position: fixed; left: 0; right: 0; bottom: 0;
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    justify-items: center; align-items: center; overflow-x: visible;
+    background: var(--ink-2); border-top: 1px solid var(--line);
+    padding: .7rem .3rem calc(.7rem + env(safe-area-inset-bottom, 0px)) }
+  .footer { padding-bottom: 84px }
+}
