@@ -2688,7 +2688,7 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           and 'import { Artboard }' in _mains and "Artboard()," in _mains
           and (_mains.index("FrontPage(),") < _mains.index("Artboard(),")
                < _mains.index("Scoring(),"))
-          and 'import { startPaperboard, startArtboard, startWorldMap }' in _mains
+          and 'import { startPaperboard, startArtboard' in _mains
           and "startArtboard();" in _mains
           and all(_k in uxjs for _k in ("/api/artworks", "/api/artwork/start",
                                         "/api/artwork/vote"))
@@ -2803,6 +2803,98 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           and "box-shadow" not in _cssB.split("the world map:")[1],
           "the sheet's map drifted")
     _wdb.close()
+
+    # ---- P6E Arcade: the shell ships, the games are honest guests --------
+    from paperboard.arcade import Arcade as _Ar, week_key as _wk
+    _adb2 = dbmod.DB(":memory:", verbose=False)
+    _as = svc.Service(_adb2, None, stY2)
+    _ar = _Ar(_adb2, stY2)
+    _akey = _wk()
+    _akey2 = _wk()
+    _astruct = time.strptime(_akey, "%Y-%m-%d")
+    _aowner = _as.create_or_touch_account("arc1@paperboard.test")[0]["id"]
+    _atwo = _as.create_or_touch_account("arc2@paperboard.test")[0]["id"]
+    _athree = _as.create_or_touch_account("arc3@paperboard.test")[0]["id"]
+    _acf = stY2.pb.get("arcade") or {}
+    _t1 = time.time() + 3600
+    _t2 = time.time() + 2000
+    _t3 = time.time() + 1000
+    _adb2.conn.execute("INSERT INTO game_scores(game_id,account_id,week,score,submitted_at)"
+                       " VALUES('press-run',?,?,?,?)", (_aowner, _akey, 50, _t1))
+    _adb2.conn.execute("INSERT INTO game_scores(game_id,account_id,week,score,submitted_at)"
+                       " VALUES('press-run',?,?,?,?)", (_atwo, _akey, 40, _t2))
+    _adb2.conn.execute("INSERT INTO game_scores(game_id,account_id,week,score,submitted_at)"
+                       " VALUES('press-run',?,?,?,?)", (_athree, _akey, 40, _t3))
+    try:
+        _adb2.conn.execute(
+            "INSERT INTO game_scores(game_id,account_id,week,score,submitted_at)"
+            " VALUES('press-run',?,?,?,?)", (_aowner, _akey, 12345, 99))
+        _adup = "wall did not speak"
+    except Exception:
+        _adup = "wall spoke"
+    _abd = _ar.board("press-run")
+    check("P6E the week is the Friday the payouts already ride: week_key names"
+          " a UTC Friday (the strptime truth, not a hope), lies strictly ahead"
+          " and no more than a week out, and two calls a breath apart name the"
+          " SAME week (a week that moved between two reads would move the"
+          " boards under a reader)",
+          _astruct.tm_wday == 4
+          and _akey == _akey2
+          and time.mktime(_astruct) - time.time() > 0
+          and time.mktime(_astruct) - time.time() <= 7 * 86400, _akey)
+    check("P6E the floor is config's own words: three named games with three"
+          " blurbs and states that say what is true (repo pending — no invented"
+          " integrations), the boundary names the Friday, the board cap is the"
+          " config's number, and the floor's payload carries games, week, and"
+          " boundary together (the sheet never invents a game the server's"
+          " floor did not name)",
+          len(_acf["games"]) == 3 and _ar.boundary == _acf["boundary"]
+          and _ar.board_max == _acf["boardMax"]
+          and all(g.get("blurb") and g.get("state") for g in _acf["games"])
+          and set(_ar.floor().keys()) == {"games", "week", "boundary"},
+          json.dumps([g["id"] for g in _acf["games"]]))
+    check("P6E a board is a ladder that does not punish a tie: fifty outranks"
+          " forty at rank 1, the two forties stand EQUAL at rank 2 (a tie names"
+          " itself, no fake silver breaks it), the earlier submission leads the"
+          " equal-score company, and the wall of the dedupe already speaks — a"
+          " second score from the same hand for the same game and week cannot"
+          " double-book the week (the key is the wall the points-week will lean"
+          " on), while a stranger game simply answers None",
+          [b["rank"] for b in _abd] == [1, 2, 2]
+          and [b["score"] for b in _abd] == [50, 40, 40]
+          and _abd[1]["handle"] and _ar.board("nope-game") is None
+          and _adup == "wall spoke", str(_abd))
+    check("P6E shape pins: the score table rides the SCHEMA (a fresh :memory:"
+          " DB proves the UNIQUE wall is in the text itself), the two read"
+          " doors sit in the GET branch where the day's lesson lives, and the"
+          " shell answers an unknown game with unknown_game at the route's own"
+          " voice (the module says None, the route says the key)",
+          "UNIQUE (game_id, account_id, week)" in _dbsrc
+          and all(_k in _routesrc for _k in
+                  ('"/api/arcade"', '"/api/arcade/leaderboard"', "unknown_game"))
+          and _routesrc.index('if method == "GET":')
+          < _routesrc.index('if path == "/api/arcade/leaderboard":')
+          < _routesrc.index('if method == "POST":'), "the arcade's shape drifted")
+    _arjs = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                  "components", "arcade.js"), encoding="utf-8").read()
+    check("P6E the arcade on the sheet: the section exists and the mast points"
+          " at it, main mounts it after the world map and before the scoring"
+          " (the shell's fourth boot call answers), the app speaks to exactly"
+          " the two read doors the server ships, the shell invents no link the"
+          " repos have not earned (the component carries no href at all), and"
+          " the arcade's CSS keeps the press-sheet vow — hairline frames, ruled"
+          " rows, tabular boards, zero box-shadow in the whole block",
+          'id="arcade"' in _arjs and 'href="#arcade"' in _masts
+          and _mains.index("WorldMap(),") < _mains.index("Arcade(),")
+          < _mains.index("Scoring(),")
+          and "startArcade" in _mains and "startArcade();" in _mains
+          and all(_k in uxjs for _k in ('"/api/arcade"',
+                                        "/api/arcade/leaderboard?game="))
+          and "href=" not in _arjs
+          and ".ar__tiles" in _cssB and ".ar__rows" in _cssB
+          and "box-shadow" not in _cssB.split("the arcade:")[1],
+          "the sheet's arcade drifted")
+    _adb2.close()
 
     print("failures:", len(FAILURES))
     return len(FAILURES)

@@ -74,6 +74,22 @@
       "listMax": 40
     },
 
+    "arcade": {
+      "boundary": "friday",
+      "boardMax": 10,
+      "games": [
+        { "id": "press-run", "name": "Press Run",
+          "blurb": "an endless gallop past the folds — reflex, not luck",
+          "state": "repo pending" },
+        { "id": "paper-tactics", "name": "Paper Tactics",
+          "blurb": "one turn a day, a board made of the whole front page",
+          "state": "repo pending" },
+        { "id": "inkfall", "name": "Inkfall",
+          "blurb": "drop the letters, spell no nonsense — a week of nerves",
+          "state": "repo pending" }
+      ]
+    },
+
     "scoring": {
       "version": "pb-v3.0",
       "basePerPost": 10,

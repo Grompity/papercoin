@@ -17,6 +17,7 @@ export function Masthead() {
           <a class="mast__link" href="#frontpage">Front page</a>
           <a class="mast__link" href="#artboard">Artboard</a>
           <a class="mast__link" href="#worldmap">World map</a>
+          <a class="mast__link" href="#arcade">Arcade</a>
           <a class="mast__link" href="#scoring">Scoring</a>
           <a class="mast__link" href="#bill">The bill</a>
         </nav>

@@ -14,6 +14,7 @@ import time
 from .accounts import normalize_email
 from .artboard import Artboard
 from .worldmap import WorldMap
+from .arcade import Arcade, week_key
 from .settings import SITE_DIR
 from .xapi import make_pkce, XError
 
@@ -43,6 +44,7 @@ class Router:
         self.clock = time.time
         self.art = Artboard(db, settings)
         self.wm = WorldMap(db, settings)
+        self.ar = Arcade(db, settings)
         self._rl = {}
 
     # ------------------------------------------------------------ rate limits
@@ -246,6 +248,19 @@ class Router:
                         return fail(404, view.get("reason", "payout_batch_not_found"))
                     return ok(**view)
                 return fail(404, "unknown_api_route")
+            if path == "/api/arcade":
+                # the floor is config's own words — no bucket of its own
+                # beyond the api door; a week rides the Friday the payouts
+                # already keep, and the key travels so the sheet can echo it.
+                return ok(**self.ar.floor())
+
+            if path == "/api/arcade/leaderboard":
+                wk = query.get("week") or week_key()
+                rows = self.ar.board(query.get("game") or "", wk)
+                if rows is None:
+                    return fail(404, "unknown_game")
+                return ok(game=query.get("game"), week=wk, rows=rows)
+
             if path == "/api/worldmap":
                 if not self._allow(f"worldmap:{ip}",
                                    rl["worldmapPerMinute"], 60):

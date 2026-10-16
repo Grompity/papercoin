@@ -359,7 +359,7 @@
   text-transform: uppercase; color: var(--cream-faint); border: 1px solid var(--line) }
 .ab__sort .btn.is-on { color: var(--cream); border-color: var(--cream) }
 .art-grid { display: grid; gap: var(--sp-3);
-  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)));
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
   border-top: 1px solid var(--line); padding-top: var(--sp-3) }
 .art { margin: 0; display: grid; gap: var(--sp-1) }
 .art__frame { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover;
@@ -400,4 +400,34 @@
 .wm__seat-doors { display: flex; gap: var(--sp-2); flex-wrap: wrap }
 @media (width ≤ 720px) {
   .wm__map { width: 100% }
+}
+
+/* — the arcade: the games floor (feature three) —
+   tiles in hairline frames, boards as ruled rows; the press-sheet vow holds. */
+.arcade { background: var(--ink) }
+.ar__tiles { display: grid; gap: var(--sp-3);
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  border-top: 1px solid var(--line); padding-top: var(--sp-3) }
+.ar__tile { border: 1px solid var(--line-2); padding: var(--sp-2); margin: 0 }
+.ar__tile-state { font-family: var(--mono); font-size: var(--fs-caption);
+  letter-spacing: .18em; text-transform: uppercase; color: var(--cream-faint);
+  margin: 0 0 .4em }
+.ar__tile-state::before { content: "· "; }
+.ar__tile-name { font-family: var(--serif); font-size: var(--fs-h3);
+  margin: 0 0 var(--sp-1) }
+.ar__blurb { color: var(--cream-dim); margin: 0 }
+.ar__boards { display: grid; gap: var(--sp-3); margin-top: var(--sp-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)) }
+.ar__board { border-top: 2px solid var(--cream); padding-top: var(--sp-1) }
+.ar__board-name { font-family: var(--mono); font-size: var(--fs-kicker);
+  letter-spacing: .2em; text-transform: uppercase; color: var(--cream-dim) }
+.ar__rows { display: grid }
+.ar__row { display: flex; justify-content: space-between; gap: var(--sp-2);
+  border-bottom: 1px solid var(--line); padding: .5em 0;
+  font-variant-numeric: tabular-nums }
+.ar__rank { font-family: var(--serif); font-weight: 900; width: 1.6em }
+.ar__handle { flex: 1 1 auto; font-weight: 800 }
+.ar__score { color: var(--cream) }
+@media (width ≤ 720px) {
+  .ar__tiles, .ar__boards { grid-template-columns: 1fr }
 }

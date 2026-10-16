@@ -370,6 +370,21 @@ CREATE TABLE IF NOT EXISTS member_locations (
   updated_at  REAL NOT NULL,
   FOREIGN KEY (account_id) REFERENCES accounts(id)
 );
+
+-- Arcade (feature three): the score table the shell already knows the shape
+-- of — a score belongs to a game, an account, and a week (the week named by
+-- the Friday that closes it), and the UNIQUE wall is the dedupe that points
+-- week will lean on. boards read empty until a game ships: the empty board is
+-- the truth of the shell, never a stub pretending to be data.
+CREATE TABLE IF NOT EXISTS game_scores (
+  id            INTEGER PRIMARY KEY,
+  game_id       TEXT NOT NULL,
+  account_id    INTEGER NOT NULL,
+  week          TEXT NOT NULL,
+  score         INTEGER NOT NULL,
+  submitted_at  REAL NOT NULL,
+  UNIQUE (game_id, account_id, week)
+);
 """
 
 

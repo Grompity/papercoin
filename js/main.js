@@ -6,11 +6,12 @@ import { Board } from "./components/board.js";
 import { FrontPage } from "./components/frontpage.js";
 import { Artboard } from "./components/artboard.js";
 import { WorldMap } from "./components/worldmap.js";
+import { Arcade } from "./components/arcade.js";
 import { Scoring } from "./components/scoring.js";
 import { TheBill } from "./components/dollarbill.js";
 import { BuySection } from "./components/buy.js";
 import { Footer } from "./components/footer.js";
-import { startPaperboard, startArtboard, startWorldMap } from "./paperboard.js";
+import { startPaperboard, startArtboard, startWorldMap, startArcade } from "./paperboard.js";
 
 const root = document.getElementById("root");
 
@@ -21,6 +22,7 @@ root.innerHTML = [
   FrontPage(),
   Artboard(),
   WorldMap(),
+  Arcade(),
   Scoring(),
   TheBill(),
   BuySection(),
@@ -128,3 +130,4 @@ if (!reduced && window.matchMedia("(pointer: fine)").matches) {
 startPaperboard();
 startArtboard();
 startWorldMap();
+startArcade();

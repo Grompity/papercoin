@@ -848,3 +848,71 @@ export function startWorldMap() {
   }
   return wmLoad();
 }
+
+/* ============================================================
+   arcade — the games floor (feature three). the shell reads the
+   floor from the server (config's own words), paints the tiles,
+   and asks each game's board for the week the floor named. an
+   empty board is the truth of the shell, never a stub.
+   ============================================================ */
+
+function arSlot(text) {
+  const el = document.querySelector('[data-set="ar-week"]');
+  if (el) el.textContent = text;
+}
+
+export function startArcade() {
+  const mount = document.getElementById("pb-arcade");
+  if (!mount) return Promise.resolve();
+  return (async () => {
+    let floor = null;
+    try { floor = await get("/api/arcade"); } catch { /* offline below */ }
+    if (!floor) {
+      mount.innerHTML = `<div class="state"><p>the arcade is offline — the server did not answer.</p></div>`;
+      arSlot("the arcade: offline");
+      return;
+    }
+    arSlot(`the week: ${floor.week} — shuts Friday midnight UTC`);
+    const games = floor.games ?? [];
+    mount.innerHTML = `
+      <div class="ar__tiles">
+        ${games.map((g) => `
+          <div class="ar__tile" data-ar-game="${artEsc(g.id)}">
+            <p class="ar__tile-state">${artEsc(g.state ?? "pending")}</p>
+            <h3 class="ar__tile-name">${artEsc(g.name)}</h3>
+            <p class="ar__blurb">${artEsc(g.blurb ?? "")}</p>
+          </div>`).join("")}
+      </div>
+      <div class="ar__boards">
+        ${games.map((g) => `
+          <div class="ar__board" data-ar-board="${artEsc(g.id)}">
+            <p class="ar__board-name">${artEsc(g.name)} — this week</p>
+            <div class="state"><p>…</p></div>
+          </div>`).join("")}
+      </div>`;
+    for (const g of games) {
+      const host = mount.querySelector(`[data-ar-board="${g.id}"]`);
+      if (!host) continue;
+      let rows = null;
+      try {
+        const j = await get(`/api/arcade/leaderboard?game=${g.id}&week=${floor.week}`);
+        rows = j.rows ?? [];
+      } catch { rows = null; }
+      if (rows === null) {
+        host.querySelector(".state p").textContent = "the board is offline";
+        continue;
+      }
+      if (!rows.length) {
+        host.querySelector(".state p").textContent = "no scores yet — the week is young.";
+        continue;
+      }
+      host.querySelector(".state").innerHTML = `<div class="ar__rows">${
+        rows.map((b) => `
+          <div class="ar__row">
+            <span class="ar__rank">${b.rank}</span>
+            <span class="ar__handle">${artEsc(b.handle)}</span>
+            <b class="ar__score">${b.score}</b>
+          </div>`).join("")}</div>`;
+    }
+  })();
+}
