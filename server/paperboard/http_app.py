@@ -244,6 +244,11 @@ class Router:
                         return fail(404, view.get("reason", "payout_batch_not_found"))
                     return ok(**view)
                 return fail(404, "unknown_api_route")
+            if path == "/api/artworks":
+                if not self._allow(f"artworks:{ip}",
+                                   rl["artworksPerMinute"], 60):
+                    return fail(429, "rate_limited")
+                return ok(artworks=self.art.list(query.get("sort") or "new"))
             return fail(404, "unknown_api_route")
 
         if method == "POST":
@@ -563,12 +568,6 @@ class Router:
                                       (cookies["PBSD"],))
                     s.db.conn.commit()
                 return ok(loggedOut=True)
-            if path == "/api/artworks":
-                if not self._allow(f"artworks:{ip}",
-                                   rl["artworksPerMinute"], 60):
-                    return fail(429, "rate_limited")
-                return ok(artworks=self.art.list(query.get("sort") or "new"))
-
             if path == "/api/me/wallet":
                 if not user:
                     return fail(401, "not_connected")

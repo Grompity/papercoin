@@ -348,3 +348,38 @@
   min-inline-size: 0 }
 .field:focus { outline: none; border-color: var(--green) }
 .field::placeholder { color: var(--cream-faint) }
+
+/* — the artboard: the community wall (feature one) —
+   press-sheet rules: hairline grid, mono micro-labels, tabular counts,
+   square frames. zero card-mountain shadows in this whole block. */
+.artboard { background: var(--ink) }
+.ab__sort { display: grid; gap: var(--sp-1); justify-content: start;
+  grid-auto-flow: column; margin: var(--sp-3) 0 var(--sp-2) }
+.ab__sort .btn { font-family: var(--mono); font-size: .6rem; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--cream-faint); border: 1px solid var(--line) }
+.ab__sort .btn.is-on { color: var(--cream); border-color: var(--cream) }
+.art-grid { display: grid; gap: var(--sp-3);
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)));
+  border-top: 1px solid var(--line); padding-top: var(--sp-3) }
+.art { margin: 0; display: grid; gap: var(--sp-1) }
+.art__frame { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover;
+  border: 1px solid var(--line-2); border-radius: 0; background: var(--ink-2) }
+.art__cap { display: grid; gap: .15em }
+.art__title { font-family: var(--serif); font-weight: 700; font-size: 1.02rem }
+.art__credit { font-family: var(--mono); font-size: var(--fs-caption);
+  letter-spacing: .16em; text-transform: uppercase; color: var(--cream-faint) }
+.art__like { justify-self: start; margin-top: var(--sp-1); background: none;
+  font-family: var(--mono); font-size: .62rem; letter-spacing: .14em;
+  text-transform: uppercase; font-variant-numeric: tabular-nums;
+  border: 1px solid var(--line); color: var(--cream-dim);
+  padding: .35em .7em; cursor: pointer }
+.art__like:hover { border-color: var(--green-soft); color: var(--green) }
+.art__like.is-defer { border-color: var(--green-soft); color: var(--green) }
+.ab__hang { margin-top: var(--sp-4); display: grid; gap: var(--sp-2);
+  border-top: 2px solid var(--cream); padding-top: var(--sp-2) }
+.ab__hang .field { display: grid; gap: .2em; font-family: var(--mono);
+  font-size: var(--fs-caption); letter-spacing: .18em; text-transform: uppercase;
+  color: var(--cream-faint) }
+@media (width ≤ 720px) {
+  .art-grid { grid-template-columns: 1fr }
+}

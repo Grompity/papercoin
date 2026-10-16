@@ -4,11 +4,12 @@ import { Masthead } from "./components/masthead.js";
 import { Hero } from "./components/hero.js";
 import { Board } from "./components/board.js";
 import { FrontPage } from "./components/frontpage.js";
+import { Artboard } from "./components/artboard.js";
 import { Scoring } from "./components/scoring.js";
 import { TheBill } from "./components/dollarbill.js";
 import { BuySection } from "./components/buy.js";
 import { Footer } from "./components/footer.js";
-import { startPaperboard } from "./paperboard.js";
+import { startPaperboard, startArtboard } from "./paperboard.js";
 
 const root = document.getElementById("root");
 
@@ -17,6 +18,7 @@ root.innerHTML = [
   Hero(),
   Board(),
   FrontPage(),
+  Artboard(),
   Scoring(),
   TheBill(),
   BuySection(),
@@ -122,3 +124,4 @@ if (!reduced && window.matchMedia("(pointer: fine)").matches) {
 
 /* — PAPERBOARD: the product boots after the sheet is on the page — */
 startPaperboard();
+startArtboard();

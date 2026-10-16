@@ -586,3 +586,161 @@ export function startPaperboard() {
   wire();
   return boot();
 }
+
+/* ============================================================
+   the artboard — the community wall (feature one). its own small
+   corner of the app: one fetch, one delegated click lane, one form
+   that speaks base64. the server is the authority on the day, the
+   bytes, and the vote; this corner only ever asks.
+   ============================================================ */
+
+const ART_KEYS = {
+  daily_cap: "three sheets a day — the wall resets at midnight UTC",
+  upload_rate_limited: "ease off the door — too many hangs in ten minutes",
+  bad_image_type: "paper must be png, jpg, gif, or webp — the bytes decide",
+  bad_image_data: "the file came through empty",
+  too_large: "that sheet is over five megabytes",
+  bad_title: "name your sheet (up to 80 marks)",
+  bad_credit: "the credit is too long",
+  bad_note: "the note is too long",
+  account_absent: "that account is gone from the ledger",
+  not_authenticated: "sign in at the board first — the wall knows you by cookie",
+  art_absent: "that paper already left the wall",
+  not_owner: "only the author takes their own paper down",
+  vote_rate_limited: "the likes can rest for a minute",
+  store_failed: "the wall could not take the bytes (503)",
+};
+
+let abSort = "new";
+let abRows = [];
+
+const artEsc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+function artSlotText(text) {
+  const el = document.querySelector('[data-set="ab-state"]');
+  if (el) el.textContent = text;
+}
+
+async function artFetch() {
+  const j = await get(`/api/artworks?sort=${abSort}`);
+  return j.artworks ?? [];
+}
+
+function artCard(r) {
+  return `
+    <figure class="art" data-art-id="${r.id}">
+      <img class="art__frame" src="${artEsc(r.href)}" alt="${artEsc(r.title)}"
+           loading="lazy" decoding="async">
+      <figcaption class="art__cap">
+        <span class="art__title">${artEsc(r.title)}</span>
+        <span class="art__credit">${artEsc(r.credit || "anonymous")}</span>
+        <button type="button" class="art__like" data-art-vote="${r.id}">
+          like <span class="art__count">${r.likes}</span>
+        </button>
+      </figcaption>
+    </figure>`;
+}
+
+function artRender() {
+  const mount = document.getElementById("pb-art-wall");
+  if (!mount) return;
+  if (!abRows.length) {
+    mount.innerHTML = `
+      <div class="state">
+        <div class="p-idle__art"><img src="${CONFIG.poses.silly}" alt="" aria-hidden="true"
+             loading="lazy" decoding="async"></div>
+        <p>the wall is bare — be the first to hang paper.</p>
+      </div>`;
+    artSlotText("the wall: none shown");
+    return;
+  }
+  mount.innerHTML = `<div class="art-grid">${abRows.map(artCard).join("")}</div>`;
+  artSlotText(`the wall: ${abRows.length} shown`);
+}
+
+async function artLoad() {
+  try {
+    abRows = await artFetch();
+  } catch (err) {
+    const mount = document.getElementById("pb-art-wall");
+    if (mount) mount.innerHTML = `
+      <div class="state"><p>the wall is offline — the server did not answer.</p></div>`;
+    artSlotText("the wall: offline");
+    return;
+  }
+  artRender();
+}
+
+function artB64(file) {                       /* one file, one promise */
+  return new Promise((go, no) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const s = String(fr.result ?? "");
+      go(s.slice(s.indexOf(",") + 1));       /* ride the data-url's tail */
+    };
+    fr.onerror = () => no(new Error("read_failed"));
+    fr.readAsDataURL(file);
+  });
+}
+
+export function startArtboard() {
+  const mount = document.getElementById("pb-art-wall");
+  const form = document.getElementById("pb-art-form");
+  if (!mount) return Promise.resolve();
+
+  document.querySelectorAll("[data-art-sort]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      abSort = btn.dataset.artSort;
+      document.querySelectorAll("[data-art-sort]").forEach((b) =>
+        b.classList.toggle("is-on", b === btn));
+      await artLoad();
+    });
+  });
+
+  mount.addEventListener("click", async (e) => {
+    const btn = e.target.closest ? e.target.closest("[data-art-vote]") : null;
+    if (!btn) return;
+    try {
+      const r = await post("/api/artwork/vote", { art_id: Number(btn.dataset.artVote) });
+      const count = mount.querySelector(`[data-art-id="${btn.dataset.artVote}"] .art__count`);
+      if (count && r.count !== undefined) count.textContent = r.count;
+      if (r.deferred) {                      /* the doctrine on screen */
+        btn.classList.add("is-defer");
+        btn.title = "your like already rode this paper — deferred, not doubled";
+      }
+    } catch (err) {
+      const why = (err.payload && err.payload.error) || "vote failed";
+      verdict(ART_KEYS[why] || why, false, "ab-err");
+    }
+  });
+
+  if (form) form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = new FormData(form);
+    const file = f.get("paper");
+    if (!file || !file.size) { verdict("pick your paper first", false, "ab-err"); return; }
+    const btn = form.querySelector("button[type=submit]");
+    btn.disabled = true;
+    try {
+      const dataB64 = await artB64(file);
+      await post("/api/artwork/start", {
+        title: String(f.get("title") ?? "").trim(),
+        credit: String(f.get("credit") ?? "").trim(),
+        note: String(f.get("note") ?? "").trim(),
+        data_b64: dataB64,
+      });
+      abRows = await artFetch();             /* refetch — order is the server's call */
+      artRender();
+      form.reset();
+      verdict("paper hung. the wall remembers.", true, "ab-err");
+    } catch (err) {
+      const why = (err.payload && err.payload.error) || "hang failed";
+      verdict(ART_KEYS[why] || why, false, "ab-err");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  return artLoad();
+}

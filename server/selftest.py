@@ -2672,6 +2672,31 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
     os.environ.pop("PAPER_UPLOADS_DIR", None)
     _shutil.rmtree(_adir, ignore_errors=True)
 
+    # ---- P6C the wall on the sheet (the front half, source-shape) ------
+    _arts = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                   "components", "artboard.js"), encoding="utf-8").read()
+    _mains = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                    "main.js"), encoding="utf-8").read()
+    _masts = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                   "components", "masthead.js"), encoding="utf-8").read()
+    check("P6C the wall on the sheet: the section exists and the mast points"
+          " at it (one real anchor, no invented hop), main mounts it after the"
+          " front page and before the scoring, the app speaks only to lanes"
+          " the server ships, and the press-sheet rule holds — the artboard's"
+          " CSS block carries hairlines and tabular counts and zero box-shadow",
+          'id="artboard"' in _arts and 'href="#artboard"' in _masts
+          and 'import { Artboard }' in _mains and "Artboard()," in _mains
+          and (_mains.index("FrontPage(),") < _mains.index("Artboard(),")
+               < _mains.index("Scoring(),"))
+          and 'import { startPaperboard, startArtboard }' in _mains
+          and "startArtboard();" in _mains
+          and all(_k in uxjs for _k in ("/api/artworks", "/api/artwork/start",
+                                        "/api/artwork/vote"))
+          and "art_id:" in uxjs and "data_b64" in uxjs
+          and ".art-grid" in _cssB and ".art__frame" in _cssB
+          and "box-shadow" not in _cssB.split("artboard: the community wall")[1],
+          "the sheet's wall drifted")
+
     print("failures:", len(FAILURES))
     return len(FAILURES)
 

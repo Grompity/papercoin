@@ -15,6 +15,7 @@ export function Masthead() {
         <nav class="mast__links" aria-label="main">
           <a class="mast__link" href="#board">Paperboard</a>
           <a class="mast__link" href="#frontpage">Front page</a>
+          <a class="mast__link" href="#artboard">Artboard</a>
           <a class="mast__link" href="#scoring">Scoring</a>
           <a class="mast__link" href="#bill">The bill</a>
         </nav>
