@@ -870,6 +870,22 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           " the buckets, and the 502-on-refusal contract all stand untouched",
           "deferred=True" in _httpsrc and "j.deferred" in _pk,
           "the wire tells truth")
+    _cssT = open(os.path.join(os.path.dirname(__file__), "..", "css",
+                              "tokens.css")).read()
+    _cssP = open(os.path.join(os.path.dirname(__file__), "..", "css",
+                              "paper.css")).read()
+    _cssB = open(os.path.join(os.path.dirname(__file__), "..", "css",
+                              "paperboard.css")).read()
+    check("P6B the voice as law: the press-sheet tokens carry a type scale, a"
+          " spacing scale, a motion pair and two corner families; the mast"
+          " index survives at the phone width instead of vanishing; the five"
+          " honest states have names — loading, empty, error, success, deferred"
+          " — and the lanes still to come cite them from day one; no mechanism"
+          " moved, the system just gained words",
+          "--fs-h3" in _cssT and "--sp-3" in _cssT and "--dur-1" in _cssT
+          and "p6b" in _cssP
+          and ".state__title" in _cssB and ".p-defer" in _cssB and ".field" in _cssB,
+          "the system has words")
 
     stt, payload = go("GET", "/api/account")
     check("acct: the dashboard is 401 for the seatless (no IDOR door)",

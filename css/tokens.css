@@ -45,4 +45,27 @@
 
   /* motion */
   --ease-out: cubic-bezier(.22, .61, .36, 1);
+
+  /* p6b — the voice as law: sizes that lived inline in rules move here
+     as a scale so future sections quote the system instead of inventing
+     a clamp. values mirror today's headings (h0 hero nameplate, h1 board,
+     h2 spreads, h3 panel voices, num the score figure); legacy rules keep
+     their clamps (zero behavior change), new rules cite the scale. */
+  --fs-h0: clamp(3.4rem, 5.2vw, 4.45rem);
+  --fs-h1: clamp(2.3rem, 5.2vw, 4.1rem);
+  --fs-h2: clamp(2.1rem, 4.6vw, 3.8rem);
+  --fs-h3: clamp(1.25rem, 2.2vw, 1.7rem);
+  --fs-num: clamp(3rem, 8vw, 4.6rem);
+  --fs-kicker: .7rem;
+  --fs-caption: .66rem;
+
+  /* spacing: one breath scale, fine to broad */
+  --sp-1: .4rem; --sp-2: .9rem; --sp-3: 1.4rem; --sp-4: 2.2rem;
+  --sp-5: clamp(28px, 4vw, 48px); --sp-6: clamp(72px, 11vh, 140px);
+
+  /* motion pair (two durations, one ease — everything shares these) */
+  --dur-1: .18s; --dur-2: .3s;
+
+  /* corners: two families, pills stay pills */
+  --r-card: 12px; --r-field: 8px;
 }

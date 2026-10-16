@@ -130,7 +130,13 @@ em { font-style: italic; font-family: var(--serif) }
 .mast__link:hover::after { right: 0 }
 .mast__cta { flex: none }
 @media (max-width: 720px) {
-  .mast__links { display: none }
+  /* p6b: the navigation survives at the phone width — tightened tracking
+     and a smaller voice, not a disappearance. no hamburger theatre; the
+     broadsheet keeps its index, scrollable. */
+  .mast__links { gap: 14px; overflow-x: auto; scrollbar-width: none }
+  .mast__links::-webkit-scrollbar { display: none }
+  .mast__link { font-size: .62rem; letter-spacing: .12em; padding-block: 10px }
+  .mast__link::after { bottom: -4px }
 }
 
 /* — hero (front page) — */
@@ -264,6 +270,19 @@ em { font-style: italic; font-family: var(--serif) }
 @keyframes bob {
   0%, 100% { translate: 0 0 }
   50% { translate: 0 -6px }
+}
+
+/* — skip link (p6b: the keyboard rider gets the front seat) — */
+.skip { position: absolute; inset-inline-start: 12px; inset-block-start: -48px;
+  z-index: 70; background: var(--green); color: var(--green-deep);
+  font-family: var(--mono); font-size: .66rem; letter-spacing: .18em;
+  text-transform: uppercase; padding: .55em .9em; border-radius: 0 0 8px 8px;
+  text-decoration: none }
+.skip:focus-visible { inset-block-start: 0 }
+
+/* — thumb targets where there is no cursor (p6b) — */
+@media (pointer: coarse) {
+  .btn { min-block-size: 44px; justify-content: center }
 }
 
 /* — reduced motion: everything calm, nothing hidden — */

@@ -51,9 +51,9 @@
 .p-idle { display: grid; gap: .9rem }
 .p-idle__art { position: relative; height: clamp(210px, 34svh, 300px) }
 .p-idle__art img { width: 100%; height: 100%; object-fit: contain; object-position: 50% 12% }
-.p-idle h3, .p-scan h3, .p-none h3, .p-err h3 {
+.p-idle h3, .p-scan h3, .p-none h3, .p-err h3, .state__title {
   font-family: var(--serif); font-weight: 800; font-size: clamp(1.25rem, 2.2vw, 1.7rem) }
-.p-idle p, .p-scan p, .p-none p, .p-err p { color: var(--cream-dim); font-size: .92rem }
+.p-idle p, .p-scan p, .p-none p, .p-err p, .state__body { color: var(--cream-dim); font-size: .92rem }
 
 /* — the account doors (join → email → welcome → dash) — */
 .p-join, .p-email, .p-welcome, .p-dash { display: grid; gap: .9rem }
@@ -321,3 +321,30 @@
 .scoring .sc-max { margin-block: 1rem .35rem }
 .scoring .sc-fn { margin-block: 0; font-size: .8rem; line-height: 1.6;
   color: var(--cream-faint) }
+
+/* ============================================================
+   P6B — the state vocabulary: one named pattern for the five honest
+   states — loading, empty, error, success, and deferred. the shipped
+   panels keep their own selectors (zero behavior change); the new
+   lanes below cite the system so the Artboard and the Map arrive
+   styled from their first pixel. */
+.state { display: grid; gap: var(--sp-2); justify-content: start }
+.state--center { justify-content: center; text-align: center }
+.state__figure { position: relative; min-block-size: clamp(180px, 28svh, 260px) }
+.state__figure img { width: 100%; height: 100%; object-fit: contain;
+  object-position: 50% 10% }
+.state__title { font-family: var(--serif); font-weight: 800;
+  font-size: var(--fs-h3) }
+.state__body { color: var(--cream-dim); font-size: .92rem }
+/* deferred — the fifth state, named after the mail lane learned to tell
+   the truth: not an error, not a cheer, a window. */
+.p-defer { font-family: var(--mono); font-size: .66rem; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--tan) }
+/* the one form-field pattern (the lane inputs keep their look; this is
+   the citable shape for everything still to come). */
+.field { flex: 1 1 240px; background: var(--ink); color: var(--cream);
+  border: 1px solid var(--line-2); border-radius: var(--r-field);
+  padding: .8em .9em; font-family: var(--mono); font-size: .8rem;
+  min-inline-size: 0 }
+.field:focus { outline: none; border-color: var(--green) }
+.field::placeholder { color: var(--cream-faint) }

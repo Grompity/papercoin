@@ -7,6 +7,7 @@ export function Masthead() {
   const cfg = CONFIG;
   return `
     <header class="mast">
+      <a class="skip" href="#board">skip to the board</a>
       <div class="mast__bar rail">
         <a class="mast__brand" href="#top" aria-label="${cfg.ticker} — back to top">
           ${ICONS.crown}<span class="mast__name">${cfg.tokenName}</span>
