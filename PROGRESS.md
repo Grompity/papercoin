@@ -22,6 +22,10 @@ one: the boundary always lies ahead.
 **Caught by the browser, not the eye:** a triple-paren'd `repeat()` had been
 folding the tile grid to a single column (both the artboard's and the arcade's,
 since their births). Mended same breath; two tracks computed at pane width.
+**Exact inputs still missing per game (non-blocking):** the repo/URL to link
+the tile to; who posts the score (the game client direct, or the game's own
+server); and any per-game score ceiling worth pinning under the config's
+`scoreMax`. Everything else of the integration is already cut to receive them.
 Battery: P6E section (four checks: the Friday truth, the config's words, the
 tie-naming ladder, the dedupe wall, branch-relative lanes). Screenshots
 `/var/tmp/p6e-{desktop,mobile}.jpg`.
