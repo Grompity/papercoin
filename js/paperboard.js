@@ -861,16 +861,25 @@ function arSlot(text) {
   if (el) el.textContent = text;
 }
 
+const AR_KEYS = {
+  unknown_game: "that game is not on the floor",
+  bad_score: "the score must be a whole number, 0 to 100000",
+  not_authenticated: "sign in at the board first — the score knows you by cookie",
+  score_rate_limited: "the ledger is patient — a dozen scores per ten minutes",
+};
+
 export function startArcade() {
   const mount = document.getElementById("pb-arcade");
+  const form = document.getElementById("pb-score-form");
   if (!mount) return Promise.resolve();
-  return (async () => {
+
+  async function refreshFloor() {
     let floor = null;
     try { floor = await get("/api/arcade"); } catch { /* offline below */ }
     if (!floor) {
       mount.innerHTML = `<div class="state"><p>the arcade is offline — the server did not answer.</p></div>`;
       arSlot("the arcade: offline");
-      return;
+      return null;
     }
     arSlot(`the week: ${floor.week} — shuts Friday midnight UTC`);
     const games = floor.games ?? [];
@@ -890,9 +899,9 @@ export function startArcade() {
             <div class="state"><p>…</p></div>
           </div>`).join("")}
       </div>`;
-    for (const g of games) {
+    await Promise.all(games.map(async (g) => {
       const host = mount.querySelector(`[data-ar-board="${g.id}"]`);
-      if (!host) continue;
+      if (!host) return;
       let rows = null;
       try {
         const j = await get(`/api/arcade/leaderboard?game=${g.id}&week=${floor.week}`);
@@ -900,11 +909,11 @@ export function startArcade() {
       } catch { rows = null; }
       if (rows === null) {
         host.querySelector(".state p").textContent = "the board is offline";
-        continue;
+        return;
       }
       if (!rows.length) {
         host.querySelector(".state p").textContent = "no scores yet — the week is young.";
-        continue;
+        return;
       }
       host.querySelector(".state").innerHTML = `<div class="ar__rows">${
         rows.map((b) => `
@@ -913,6 +922,41 @@ export function startArcade() {
             <span class="ar__handle">${artEsc(b.handle)}</span>
             <b class="ar__score">${b.score}</b>
           </div>`).join("")}</div>`;
-    }
-  })();
+    }));
+    return floor;
+  }
+
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const f = new FormData(form);
+      const game = String(f.get("game") ?? "");
+      const raw = String(f.get("score") ?? "").trim();
+      const score = Number(raw);
+      if (!game) { verdict("pick the game the score belongs to", false, "ar-err"); return; }
+      if (raw === "" || !Number.isInteger(score) || score < 0) {
+        verdict("the score must be a whole number of marks", false, "ar-err");
+        return;
+      }
+      try {
+        const j = await post("/api/arcade/score", { game, score });
+        await refreshFloor();
+        const r = j.recorded || {};
+        verdict(j.deferred ? `your word stood — the week keeps its best (${r.score}).`
+              : j.replaced ? `booked — you bettered your week (${r.score}).`
+              : `booked — the week has your word (${r.score}).`, true, "ar-err");
+      } catch (err) {
+        const why = (err.payload && err.payload.error) || "score failed";
+        verdict(AR_KEYS[why] || why, false, "ar-err");
+      }
+    });
+  }
+
+  return refreshFloor().then((floor) => {
+    if (!form || !floor) return;
+    const sel = form.elements.game;
+    sel.innerHTML = `<option value="">— pick a game —</option>`
+      + (floor.games ?? []).map((g) =>
+          `<option value="${artEsc(g.id)}">${artEsc(g.name)}</option>`).join("");
+  });
 }

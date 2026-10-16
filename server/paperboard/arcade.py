@@ -38,10 +38,59 @@ class Arcade:
         self.db = db
         self.games = [dict(g) for g in ar.get("games", [])]
         self.board_max = int(ar.get("boardMax", 10))
+        self.score_max = int(ar.get("scoreMax", 100000))
         self.boundary = ar.get("boundary", "friday")
 
     def known(self, game_id):
         return any(g["id"] == game_id for g in self.games)
+
+    # -------------------------------------------------------------- the score
+    def submit(self, account_id, game_id, score, at=None):
+        """one hand's word on one game's week. the week is the server's
+        naming, never the client's; the score is validated here because a
+        browser is a witness, not an authority; and the week's law is
+        best-per-week — a first score books (first), a better one replaces
+        (replaced), and a lesser or equal word changes nothing
+        (no_improvement — the same honest deferral the re-vote learned)."""
+        t = time.time() if at is None else at
+        if not self.known(game_id):
+            return "unknown_game", None
+        if score is None:
+            return "bad_score", None
+        try:
+            whole = int(score)
+        except (TypeError, ValueError):
+            return "bad_score", None
+        if hasattr(score, "isdigit"):           # a digit-string is no score's kin
+            return "bad_score", None
+        if whole != score or whole < 0 or whole > self.score_max:
+            return "bad_score", None
+        wk = week_key(at)
+        row = self.db.conn.execute(
+            "SELECT id, score FROM game_scores"
+            " WHERE game_id = ? AND account_id = ? AND week = ?",
+            (game_id, account_id, wk)).fetchone()
+        if row is None:
+            self.db.conn.execute(
+                "INSERT INTO game_scores(game_id,account_id,week,score,submitted_at)"
+                " VALUES(?,?,?,?,?)", (game_id, account_id, wk, whole, t))
+            self.db.conn.commit()
+            return "first", self.scores(game_id, account_id, wk)
+        if whole > row[1]:
+            self.db.conn.execute("UPDATE game_scores SET score = ?, submitted_at = ?"
+                                 " WHERE id = ?", (whole, t, row[0]))
+            self.db.conn.commit()
+            return "replaced", self.scores(game_id, account_id, wk)
+        return "no_improvement", self.scores(game_id, account_id, wk)
+
+    def scores(self, game_id, account_id, week):
+        r = self.db.conn.execute(
+            "SELECT score, week, submitted_at FROM game_scores"
+            " WHERE game_id = ? AND account_id = ? AND week = ?",
+            (game_id, account_id, week)).fetchone()
+        if r is None:
+            return None
+        return {"game": game_id, "score": r[0], "week": r[1], "submitted_at": r[2]}
 
     def floor(self, at=None):
         """what GET /api/arcade says: the games as config names them, the

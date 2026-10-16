@@ -77,6 +77,7 @@
     "arcade": {
       "boundary": "friday",
       "boardMax": 10,
+      "scoreMax": 100000,
       "games": [
         { "id": "press-run", "name": "Press Run",
           "blurb": "an endless gallop past the folds — reflex, not luck",
@@ -152,7 +153,8 @@
       "uploadPerTenMinutes": 8,
       "votePerTenMinutes": 12,
       "worldmapPerMinute": 30,
-      "locationPerTenMinutes": 30
+      "locationPerTenMinutes": 30,
+      "scorePerTenMinutes": 12
     },
 
     "account": {

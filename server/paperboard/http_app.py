@@ -573,6 +573,32 @@ class Router:
                     return fail(404, "no_location")
                 return ok(removed=True)
 
+            if path == "/api/arcade/score":
+                # the word of a hand on the week's board. the week is named
+                # by the server (a client cannot gild its week), the score is
+                # validated here (a browser is a witness, not an authority),
+                # and the law is best-per-week: first books at 201, better
+                # replaces, and a lesser or equal word DEFERS — 200 with the
+                # deferred word, the same doctrine the re-vote speaks.
+                denied = acct_gate()
+                if denied:
+                    return denied
+                if not self._allow(f"score:{account['id']}",
+                                   rl["scorePerTenMinutes"], 600):
+                    return fail(429, "score_rate_limited")
+                out, row = self.ar.submit(account["id"],
+                                          (body or {}).get("game", ""),
+                                          (body or {}).get("score"))
+                if out == "unknown_game":
+                    return fail(404, "unknown_game")
+                if out == "bad_score":
+                    return fail(422, "bad_score")
+                if out == "no_improvement":
+                    return ok(recorded=row, deferred=True)
+                if out == "first":
+                    return (201, {"recorded": row})
+                return ok(recorded=row, replaced=True)
+
             if path == "/api/auth/logout":
                 s.end_session(cookies.get("PBSD"))
                 return ok(loggedOut=True)

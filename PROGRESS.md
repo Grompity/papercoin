@@ -6,9 +6,68 @@ where the tree stands at each mile. batteries run on BOTH interpreters:
 
 ---
 
+## Milestone E — Arcade, the shell (today, commit d9976b4)
+
+**The floor before the games.** `arcade.py` + config's `arcade` block: three
+named games (Press Run, Paper Tactics, Inkfall) with honest `repo pending`
+states and no invented links — the component carries not one href. One score
+table (`game_scores`) whose `UNIQUE(game, account, week)` wall is the dedupe
+the points-week would lean on. Two read lanes: GET `/api/arcade` (the config's
+own words + the week + the boundary) and GET `/api/arcade/leaderboard` (unknown
+game answers `unknown_game` 404; empty boards are the truth of the shell).
+`week_key()` names the next UTC-Friday midnight that closes the week — the same
+Friday the payouts keep — and today being a Friday, it correctly named the NEXT
+one: the boundary always lies ahead.
+
+**Caught by the browser, not the eye:** a triple-paren'd `repeat()` had been
+folding the tile grid to a single column (both the artboard's and the arcade's,
+since their births). Mended same breath; two tracks computed at pane width.
+Battery: P6E section (four checks: the Friday truth, the config's words, the
+tie-naming ladder, the dedupe wall, branch-relative lanes). Screenshots
+`/var/tmp/p6e-{desktop,mobile}.jpg`.
+
+## Milestone F — the points-week (today, this commit)
+
+**The lane:** POST `/api/arcade/score` behind the account door, its own bucket
+(`scorePerTenMinutes` 12/10min).
+
+**The doctrine, spoken and proven live:**
+- The WEEK is the server's naming — a client cannot gild its week (the rollover
+  is the passage of time, not a cron: boundary−60s rides the closing week, the
+  same word at +60s books FRESH in the next; the keys are 604800s apart by the
+  calendar's own arithmetic, proven in the battery).
+- Validation refuses, never trusts (a browser is a witness, not an authority):
+  a digit-STRING is `bad_score` (the ledger will not launder strings), as are
+  the fractional, the negative, one over config's `scoreMax`; a stranger game
+  is `unknown_game`; none of them wrote a row.
+- The law is **best-per-week**: a first word books (201), a better word replaces
+  (200 `replaced:true`), and a lesser OR EQUAL word DEFERS (200 `deferred:true`
+  — the ledger untouched, proven: `submitted_at` identical before and after).
+  The deferral is now the platform's own voice in three lanes: the magic-link
+  send, the Artboard re-vote, the score re-word.
+- Boards name ties honestly, live-proven: two hands at 55 both stand at rank 1 —
+  no fake silver.
+- The points do not touch the purse: the scoring snapshot and the prize math
+  are untouched files. **For the owner (non-blocking, no token invented):**
+  points earn no token yet — when points should cash, say the word and the
+  payout day gets its arcade line; until then the ledger stays honest by
+  having nothing to pay.
+
+**Battery lesson (the battery gets debugged too):** two initial "failures" were
+the battery's own misclaims — a count that also counted the rollover's own
+fresh rows, and a claim that the new week's board stood empty when its own
+fresh booking filled it. A standalone probe held the module innocent before a
+line of it was touched. P6F: five checks, all green both interpreters
+(`failures: 0`, exit 0 ×2).
+
+**Front:** the shell gained the score desk (select born empty and filled by the
+floor's own words, never an invented game); the doorless submit answered the
+door-copy on the page; the boards drew the tied rows. Screenshots
+`/var/tmp/p6f-{desktop,mobile}.jpg`.
+
 ## Milestone D — World Map, the crowd's shape (today)
 
-**Local commit:** this one (the pair with C's two still stand as told).
+**Local commit:** 56853c5 (the pair with C's two still stand as told).
 
 **Backend**
 - one additive table (`member_locations`, PK is the account — one seat per

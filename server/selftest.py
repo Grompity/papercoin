@@ -2896,6 +2896,105 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           "the sheet's arcade drifted")
     _adb2.close()
 
+    # ---- P6F the points-week: best-per-week, the server names the week ----
+    _fdb = dbmod.DB(":memory:", verbose=False)
+    _fs = svc.Service(_fdb, None, stY2)
+    _arf = _Ar(_fdb, stY2)
+    _fa1 = _fs.create_or_touch_account("pts1@paperboard.test")[0]["id"]
+    _fa2 = _fs.create_or_touch_account("pts2@paperboard.test")[0]["id"]
+    _fkey = _wk()
+    _f1 = _arf.submit(_fa1, "press-run", 40)
+    _f2 = _arf.submit(_fa1, "press-run", 30)
+    _f3 = _arf.submit(_fa1, "press-run", 40)
+    _f4 = _arf.submit(_fa1, "press-run", 55)
+    _fstored = _fdb.conn.execute("SELECT score FROM game_scores").fetchone()[0]
+    _fbad = [_arf.submit(_fa2, "press-run", None)[0],
+             _arf.submit(_fa2, "press-run", "12")[0],
+             _arf.submit(_fa2, "press-run", 12.5)[0],
+             _arf.submit(_fa2, "press-run", -1)[0],
+             _arf.submit(_fa2, "press-run", (_acf["scoreMax"]) + 1)[0],
+             _arf.submit(_fa1, "nope-game", 10)[0]]
+    _fstruct = time.strptime(_fkey, "%Y-%m-%d")
+    _fdn = int(time.time()) // 86400
+    _fdow = (_fdn + 3) % 7
+    _fdd = (4 - _fdow) % 7
+    if _fdd == 0:
+        _fdd = 7
+    _fbound = (_fdn + _fdd) * 86400          # the same boundary the helper draws
+    _frb = _arf.submit(_fa2, "inkfall", 7, at=_fbound - 60)
+    _fra = _arf.submit(_fa2, "inkfall", 9, at=_fbound + 60)
+    check("P6F the week's law is best-per-week: a first word books (first),"
+          " a lesser word DEFERS without touching the ledger (no_improvement"
+          " — the same honest deferral the re-vote speaks), an EQUAL word"
+          " defers too (the week keeps its best, it does not re-book a tie),"
+          " a better word replaces, and the stored score lands at the best"
+          " alone — one row, never two",
+          _f1[0] == "first" and _f1[1]["week"] == _fkey
+          and _f2[0] == "no_improvement" and _f3[0] == "no_improvement"
+          and _f4[0] == "replaced" and _f4[1]["score"] == 55
+          and _fstored == 55, str((_f1[0], _f2[0], _f3[0], _f4[0])))
+    check("P6F validation refuses, never trusts — and a browser is a witness,"
+          " not an authority: a missing score, a digit-STRING (JSON carries"
+          " numbers and this ledger will not launder strings), a fractional"
+          " score (marks are whole), a negative, one over the config's own"
+          " scoreMax, and a stranger game — every wall reads the shipped"
+          " config, and none of the refusals wrote a row",
+          _fbad == ["bad_score", "bad_score", "bad_score", "bad_score",
+                   "bad_score", "unknown_game"]
+          and _fdb.conn.execute("SELECT COUNT(*) FROM game_scores"
+                                " WHERE game_id = 'press-run' AND account_id = ?",
+                                (_fa2,)).fetchone()[0] == 0
+          and _arf.score_max == _acf["scoreMax"],
+          [("keys", _fbad == ["bad_score", "bad_score", "bad_score",
+                              "bad_score", "bad_score", "unknown_game"]),
+           ("wrote", _fdb.conn.execute("SELECT COUNT(*) FROM game_scores"
+                                       " WHERE game_id = 'press-run'"
+                                       " AND account_id = ?", (_fa2,)).fetchone()[0]),
+           ("cap", _arf.score_max == _acf["scoreMax"])])
+    check("P6F the rollover is the passage of time, not a cron: a score"
+          " booked an hour BEFORE the Friday boundary rides the closing week,"
+          " the SAME submission an hour AFTER books fresh in the NEXT week"
+          " (first, not a re-book — the wall is per week), the two keys are"
+          " seven days apart by the calendar's own arithmetic, and the old"
+          " week's board keeps its rows while the new week's board is honestly"
+          " empty (the points never move — the key moves under them, which is"
+          " exactly why they need no payout moment)",
+          _frb[0] == "first" and _frb[1]["week"] == _fkey
+          and _fra[0] == "first" and _fra[1]["week"] == _wk(_fbound + 60)
+          and _fra[1]["week"] != _fkey
+          and abs(time.mktime(time.strptime(_fra[1]["week"], "%Y-%m-%d"))
+                   - time.mktime(_fstruct)) == 604800
+          and len(_arf.board("inkfall", _fkey)) == 1
+          and _arf.board("press-run", _fra[1]["week"]) == [], \
+              str((_frb[0], _fra[0], _frb[1]["week"] == _fkey, _fra[1]["week"])))
+    check("P6F route and doctrine pins: the score door sits in the POST"
+          " branch (branch-relative, the lesson that stays learned), its"
+          " no-improvement answer speaks the DEFERRAL voice (200 with the"
+          " deferred word — the platform's law, three lanes strong now) and"
+          " the first word answers 201, the rate key rides the shipped config,"
+          " and the points do not touch the purse (the scoring snapshot and"
+          " the prize math are untouched files — this chapter adds no import"
+          " of theirs and takes no number from them)",
+          _routesrc.index('if method == "POST":')
+          < _routesrc.index('if path == "/api/arcade/score":')
+          and "deferred" in _routesrc[_routesrc.index(
+              '"/api/arcade/score"'):_routesrc.index('"/api/arcade/score"') + 1400]
+          and "(201," in _routesrc[_routesrc.index(
+              '"/api/arcade/score"'):_routesrc.index('"/api/arcade/score"') + 1400]
+          and "scorePerTenMinutes" in stY2.pb["ratelimit"], "the week's shape drifted")
+    _arjs2 = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                   "components", "arcade.js"), encoding="utf-8").read()
+    check("P6F the score desk on the sheet: the shell carries the form now"
+          " (a select born empty — the floor's own words fill it, never an"
+          " invented game), the app speaks to the score door, and the still"
+          " no-links vow holds (the form is not a link and the component"
+          " still carries no href — the repos have still earned none)",
+          'id="pb-score-form"' in _arjs2 and "<select" in _arjs2
+          and 'name="score"' in _arjs2
+          and '"/api/arcade/score"' in uxjs
+          and "href=" not in _arjs2, "the desk drifted")
+    _fdb.close()
+
     print("failures:", len(FAILURES))
     return len(FAILURES)
 

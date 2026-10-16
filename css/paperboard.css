@@ -431,3 +431,11 @@
 @media (width ≤ 720px) {
   .ar__tiles, .ar__boards { grid-template-columns: 1fr }
 }
+
+/* the arcade's score desk rides the hang-desk idiom; the select is
+   a field like any other, and the options keep the ink. */
+.ar__score { margin-top: var(--sp-3) }
+.ar__score select { -webkit-appearance: none; appearance: none;
+  background: transparent; color: var(--cream);
+  font-family: var(--mono); font-size: .7rem; letter-spacing: .1em }
+.ar__score option { background: var(--ink-2); color: var(--cream) }

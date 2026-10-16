@@ -24,6 +24,20 @@ export function Arcade() {
         </p>
 
         <div id="pb-arcade" data-reveal><!-- tiles and boards, injected by the app --></div>
+
+        <form class="ab__hang ar__score" id="pb-score-form">
+          <label class="field"><span>game</span>
+            <select class="field__input" name="game" required></select>
+          </label>
+          <label class="field"><span>your score</span>
+            <input class="field__input" name="score" type="number" min="0"
+                   step="1" placeholder="the week's best" autocomplete="off">
+          </label>
+          <div class="wm__seat-doors">
+            <button type="submit" class="btn btn--solid">book my score</button>
+          </div>
+          <p class="p-join__err" data-slot="ar-err" aria-live="polite"></p>
+        </form>
       </div>
     </section>`;
 }
