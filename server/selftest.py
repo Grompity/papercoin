@@ -662,7 +662,8 @@ def main():
           " exception-f-string is gone, while the front-end's map learned"
           " mail_failed and server_error, reserving the catch-all for a door"
           " that never answered at all",
-          stt == 200 and (payload or {}).get("sent") is True and _n1 == _n0 + 1
+          stt == 200 and (payload or {}).get("sent") is False
+          and (payload or {}).get("deferred") is True and _n1 == _n0 + 1
           and 'fail(502, "mail_failed")' in _routesrc
           and 'f"mail_failed:' not in _routesrc
           and 'mail_failed: "' in _frontsrc and 'server_error: "' in _frontsrc,
@@ -850,6 +851,25 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           " of absence of code",
           "[mail] sent in" in _mailsrc and "[mail] deferred" in _httpsrc,
           "three ways, no secrets")
+    import ssl as _p6ps
+    import importlib.util as _p6piu
+    _mspec = _p6piu.spec_from_file_location("p6p_mail_under_test",
+              os.path.join(os.path.dirname(__file__), "paperboard", "mail.py"))
+    _m = _p6piu.module_from_spec(_mspec); _mspec.loader.exec_module(_m)
+    _m.CA_BUNDLE = "/this-bundle-is-absent-on-purpose.pem"
+    _ctx = _m._ssl_context()
+    check("P6P.2 portability: on a box with no mac anchor bundle the tls"
+          " context still builds — an absent file is a linux fact, never a"
+          " mail-room crash — and it still verifies the peer and its name:"
+          " the fix trades an anchor path, never the verification itself",
+          _ctx.verify_mode == _p6ps.CERT_REQUIRED and _ctx.check_hostname,
+          "context survives absence")
+    check("P6P.3 deferral honesty: the route distinguishes fresh mail from a"
+          " fresh window — a deferred answer says sent:false plus deferred:true"
+          " and the front reads that flag before it smiles; the 45 s window,"
+          " the buckets, and the 502-on-refusal contract all stand untouched",
+          "deferred=True" in _httpsrc and "j.deferred" in _pk,
+          "the wire tells truth")
 
     stt, payload = go("GET", "/api/account")
     check("acct: the dashboard is 401 for the seatless (no IDOR door)",
@@ -1056,7 +1076,7 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
     stt, payload = go("POST", "/api/account/start", body={"email": "grompity@paper.io"})
     tok3 = magic_from(payload or {})
     check("mail: the resend window echoes the live link without a second send",
-          stt == 200 and tok2 == tok3 and payload.get("sent")
+          stt == 200 and tok2 == tok3 and payload.get("deferred") is True
           and len(s.mail.sent) == sent_after_real_send,
           f"{tok2[:8]}… {sent_after_real_send}")
 
@@ -2122,16 +2142,19 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           " default — nothing here had to be turned on",
           ctxM.verify_mode == ssl.CERT_REQUIRED and ctxM.check_hostname)
     saved_bundle, mailmod.CA_BUNDLE = mailmod.CA_BUNDLE, "/nope/no-bundle.pem"
-    closed = False
+    fell_back = None
     try:
-        try:
-            mailmod._ssl_context()
-        except (OSError, RuntimeError, ssl.SSLError):
-            closed = True
+        fell_back = mailmod._ssl_context()
+    except (OSError, RuntimeError, ssl.SSLError):
+        pass
     finally:
         mailmod.CA_BUNDLE = saved_bundle
-    check("mail tls: a missing bundle fails closed at context creation —"
-          " never a silently unverified send", closed)
+    check("mail tls: a missing bundle no longer aborts the mail room — the"
+          " context falls back to the platform's own store and still verifies"
+          " peer and name: fail closed was the rule and it holds, answered by"
+          " a real store rather than by an exception",
+          fell_back is not None and fell_back.verify_mode == ssl.CERT_REQUIRED
+          and fell_back.check_hostname)
     class TrustyConn:
         def ehlo_or_helo_if_needed(self): pass
         def starttls(self, context=None): self.tls_context = context

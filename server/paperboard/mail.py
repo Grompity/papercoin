@@ -10,20 +10,29 @@ money mail away.
 
 import smtplib
 import time
+import os
 import ssl
 
 # The framework python ships with an empty OpenSSL trust store (its documented
 # bundle location was never populated here), so verification rides an explicit
-# pointer to the macOS system anchor bundle. A missing bundle raises at
-# context creation — fail closed, never a silently unverified handshake.
+# pointer to the macOS system anchor bundle where that file exists; where
+# it does not (linux production) the platform's own store that
+# create_default_context loaded stands — fail closed both ways, never a
+# silently unverified handshake.
 CA_BUNDLE = "/etc/ssl/cert.pem"
 
 
 def _ssl_context():
     """The one TLS context both SMTP lanes share: verification on, hostname
-    checking on (both the stdlib defaults), anchors loaded explicitly."""
+    checking on (both the stdlib defaults). where the mac anchor bundle
+    exists it is loaded explicitly (framework python's own store is empty
+    there); where it does not — linux production — the platform store that
+    create_default_context already loaded stands, and verification holds
+    there too. a missing bundle is a platform fact, never an unverified
+    handshake."""
     ctx = ssl.create_default_context()
-    ctx.load_verify_locations(cafile=CA_BUNDLE)
+    if os.path.exists(CA_BUNDLE):
+        ctx.load_verify_locations(cafile=CA_BUNDLE)
     return ctx
 
 

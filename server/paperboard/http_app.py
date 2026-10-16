@@ -372,7 +372,8 @@ class Router:
                         return fail(502, "mail_failed")
                 else:  # p6p: a deferral is visible server-side, never silent
                     print("[mail] deferred (inside the 45 s resend window)")
-                out = dict(sent=True)                   # same shape, known or not
+                out = (dict(sent=True) if mailed else
+                       dict(sent=False, deferred=True))  # a deferral says so
                 if s.mail.mode == "mock":               # dev-only echo — the
                     echo = (token if mailed else        # plaintext survives
                             s.mail.last_token_for(acct["email"]))  # in the mailer

@@ -441,7 +441,8 @@ async function doJoin() {
     setState("email");
     const slot = $('[data-slot="magic-link"]');
     if (slot) slot.innerHTML = j.link
-      ? `<a class="btn btn--pill" href="${esc(j.link)}">open the magic link →</a>` : "";
+      ? `<a class="btn btn--pill" href="${esc(j.link)}">open the magic link →</a>`
+      : (j.deferred ? "an email from moments ago is still fresh." : "");
   } catch (e) {
     const msg = { invalid_email: "that doesn't read like an email.",
                   magic_rate_limited: "the mail door has a pace — breathe.",
