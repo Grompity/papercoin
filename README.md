@@ -303,6 +303,53 @@ token CA: `E5Gbf7q7uHeXQ1ySSPpPiYxF1da1ZL7NaCGUYQwgA8yk`
   rate-bucketed, server-side every time. the first real signature is a
   later phase with a signer that never visits the browser.
 
+## PAPER Studio (feature four, 2026-10): the campaign production desk
+
+`/studio` — reachable from the mast (the sixth door), built for
+**PAPERBOARD** but shaped for any brand. a brief rides in; a structured
+campaign plan rides out; the plan's days are rendered into **real PNG
+files** by a stdlib graphics pipeline (no PIL, no build step, no new bill),
+and the campaign leaves as a ZIP whose manifest can not lie: every file it
+names is inside.
+
+- **the plan** is an artifact, not a paragraph: objective, audience, core
+  message, then one entry per day (day, purpose, concept, caption, call to
+  action, visual, platform, aspect). the week's law: a distinct purpose per
+  day and concepts as distinct as the days — no seven variations of one joke.
+- **the pen**: five card kinds by construction (`xpost` 1600×900, `meme`
+  1080², `promo` 1080×1350, `banner` 1920×640, `announce` 1200×750). the
+  renderer is stdlib only: an embedded 5×7 press font, alpha paste of the
+  real mascot pose cut-outs (no white boxes, no stretching), and a brand
+  palette that re-skins every layout. the week caps at `maxAssets` (config):
+  over the cap the calendar does not lie, it rotates the kinds across days.
+- **QC reads the bytes that shipped**: dimensions are re-derived from the
+  written PNG header, a card counts only while its file is on disk under a
+  name the ledger itself signed, and the manifest survives loss (a file
+  deleted after the fact is neither packed nor listed).
+- **an LLM may speak the plan** (`PAPER_STUDIO_LLM_BASE_URL`/`_API_KEY`/
+  `_MODEL`; the house default model is `qwen-plus` — one chat call per
+  campaign, zero spend until configured). the answer rides `schema`
+  `paper-studio-plan/1`; words that break it fall to the deterministic voice
+  and the campaign's `engine` line says so (`deterministic (model
+  rejected)`). **the image hero is opt-in**: base + key +
+  `PAPER_STUDIO_IMG=1` must all agree before a call, and its failure is one
+  asset's note, never a lost campaign.
+- **the bytes ride beside the DB** like the wall's do: data dir
+  `PAPER_STUDIO_DIR` (default `<db dir>/studio`), one door
+  `/studio/assets/<name>` with a name-regex wall (traversal and strangers
+  answer `file_absent` before the disk is touched). routes: `GET
+  /api/studio` (what genuinely answers), `GET /api/studio/campaigns|
+  campaign?id=|export?id=`, `POST /api/studio/campaigns|regenerate`; the
+  ZIP rides `application/zip` with a named `Content-Disposition`. the
+  tables (`studio_campaigns`, `studio_assets`) are append-only; no existing
+  table bends. the JSON vow and the rate buckets (`studioPerMinute`,
+  `studioWritePerTenMinutes`) speak exactly like every other door.
+- **the brand read tells the truth about itself**: no reference → palette
+  `suggested` (the PAPER defaults speak); a PNG reference → `extracted`
+  (buckets from the bytes, voice and rules still a human's call); a JPEG
+  reference → `kept, not decoded` — the shelf does not fake a stdlib jpeg
+  decoder it does not own, and the cards ship anyway.
+
 ## notes
 
 - BUY in the hero scrolls to the dedicated **buy** section — the two purchase

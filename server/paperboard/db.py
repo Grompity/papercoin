@@ -385,6 +385,41 @@ CREATE TABLE IF NOT EXISTS game_scores (
   submitted_at  REAL NOT NULL,
   UNIQUE (game_id, account_id, week)
 );
+
+-- Studio (feature four): the campaign production engine, additive only. a
+-- brief, the plan it spoke, and the cards it rendered ride here; no existing
+-- table bends. the bytes live under the studio data dir and the rows are
+-- their ledger — one door serves them: /studio/assets/<name>.
+CREATE TABLE IF NOT EXISTS studio_campaigns (
+  id           INTEGER PRIMARY KEY,
+  name         TEXT NOT NULL,
+  slug         TEXT NOT NULL,
+  brief_json   TEXT NOT NULL DEFAULT '{}',
+  brand_json   TEXT NOT NULL DEFAULT '{}',
+  plan_json    TEXT NOT NULL DEFAULT '{}',
+  qc_json      TEXT NOT NULL DEFAULT '{}',
+  engine       TEXT NOT NULL DEFAULT 'deterministic',
+  ref_file     TEXT,
+  created_at   REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS studio_assets (
+  id           INTEGER PRIMARY KEY,
+  campaign_id  INTEGER NOT NULL,
+  day          INTEGER NOT NULL,
+  kind         TEXT NOT NULL,
+  use          TEXT NOT NULL DEFAULT '',
+  width        INTEGER NOT NULL DEFAULT 0,
+  height       INTEGER NOT NULL DEFAULT 0,
+  file         TEXT,
+  bytes        INTEGER NOT NULL DEFAULT 0,
+  text_json    TEXT NOT NULL DEFAULT '{}',
+  status       TEXT NOT NULL DEFAULT 'pending',
+  note         TEXT NOT NULL DEFAULT '',
+  variant      INTEGER NOT NULL DEFAULT 0,
+  created_at   REAL NOT NULL,
+  FOREIGN KEY (campaign_id) REFERENCES studio_campaigns(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_studio_assets_campaign ON studio_assets(campaign_id, day);
 """
 
 

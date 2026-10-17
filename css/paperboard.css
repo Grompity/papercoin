@@ -493,3 +493,13 @@
     padding: .7rem .3rem calc(.7rem + env(safe-area-inset-bottom, 0px)) }
   .footer { padding-bottom: 84px }
 }
+
+/* ————————————————————— P6T: the studio door —————————————————————
+   the mast index counts six since PAPER Studio joined the navigation,
+   and the phone's thumb rail breathes with it. the five-track rule
+   above stays standing — it is the wall's printed history — and this
+   later rule simply speaks over it at the same weight, zero new ink,
+   zero shadow, the same hairline voice. */
+@media (max-width: 720px) {
+  .mast__links { grid-template-columns: repeat(6, 1fr) }
+}

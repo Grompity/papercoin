@@ -262,8 +262,47 @@ in the inbox.
    paperboard` → health via `api.seyruna.com` (`"ok": true, "scheduler": true`).
 2. Artboard adds a first-boot data dir: `mkdir -p /opt/paperboard/data/uploads`
    + `chown paper:paper` it (the app also makedirs at boot; the chown matters).
+   Studio rides the same law one directory over: `PAPER_STUDIO_DIR` defaults
+   to `<db dir>/studio` (so `/opt/paperboard/data/studio`), makedirs at boot,
+   no new env keys needed — the chown is the only first-boot care.
 3. Additive-only migration: the two CREATEs ride the SCHEMA string at boot;
    zero touching of the authoritative rows.
 4. The upload rate lane (8/10min per account) and the daily cap (3) are
    config-driven — retune in `config.json`, the battery reads them, not
    constants.
+
+## P6T the studio (2026-10-16): the campaign production desk — feature four
+
+- `server/paperboard/studio.py` is the whole engine: stdlib PNG reader/
+  writer, an embedded 5×7 press font, a Canvas (fills, hairlines, nearest-
+  neighbour alpha paste, wrapped press text), the deterministic planner
+  (distinct purpose per day, distinct concept per day), an env-gated LLM
+  planner whose words ride `paper-studio-plan/1` and fall to the printed
+  voice with the truth told in the engine line, an opt-in image hero, the
+  QC that reads written headers instead of promises, and the ZIP whose
+  manifest is written from the names actually added (and survives a file
+  lost after the fact).
+- two append-only tables (`studio_campaigns`, `studio_assets`); the bytes
+  live under `PAPER_STUDIO_DIR` (default `<db dir>/studio`); one door
+  serves them (`/studio/assets/<name>`, a name regex is the wall).
+- routes ride the existing branches (`GET /api/studio`, `campaigns`,
+  `campaign`, `export`; `POST campaign`, `regenerate`; the page `/studio`
+  beside admin's door). a raw body may now speak its own type through a
+  dict extra — the lane the ZIP's `Content-Disposition` needed; no older
+  route wore that shape.
+- the mast gained its sixth door (`/studio`); the five pinned prints the
+  redress counts are untouched (the studio link wears its own class), and
+  the phone's thumb rail counts six tracks with the five-track rule left
+  standing as printed history.
+- the battery gained thirteen checks (`P6T …`): the capabilities view
+  names only what answers; every wall (blank name, blank brief, digit-
+  string days, over-cap days, empty and stranger card lists, junk
+  base64, non-image, over-ceiling reference); the 35-card shelf with the
+  served bytes re-parsed against the ledger; the four planner lanes
+  (spoken/rejected/unreachable/validator) proven with a fake that wears
+  the configured coat without spending a call; the reroll doctrine (one
+  card answers for itself, the rest keep their bytes and their minute);
+  the receipt (extracts, lists every ready card, stays honest under
+  loss); the brand read's three honest voices; the rotation that speaks
+  when the cap is over-reached; and the route/mast/shelf pins.
+  312 checks, failures 0, exit 0.

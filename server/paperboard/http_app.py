@@ -15,6 +15,7 @@ from .accounts import normalize_email
 from .artboard import Artboard
 from .worldmap import WorldMap
 from .arcade import Arcade, week_key
+from .studio import Studio
 from .settings import SITE_DIR
 from .xapi import make_pkce, XError
 
@@ -45,6 +46,7 @@ class Router:
         self.art = Artboard(db, settings)
         self.wm = WorldMap(db, settings)
         self.ar = Arcade(db, settings)
+        self.stud = Studio(db, settings)
         self._rl = {}
 
     # ------------------------------------------------------------ rate limits
@@ -102,6 +104,14 @@ class Router:
             if got is None:
                 return 404, {"error": "art_absent"}
             return 200, got[0], got[1]
+        if path.startswith("/studio/assets/"):
+            # the studio's cards obey the same law as the wall's hangings:
+            # one named door, the ledger's own name-shape is the wall, and a
+            # stranger's path never reaches the disk to be argued with.
+            got = self.stud.served(path[len("/studio/assets/"):])
+            if got is None:
+                return 404, {"error": "file_absent"}
+            return 200, got[0], got[1]
         if path == "/":
             return self._static("index.html")
         if path == "/admin":
@@ -109,6 +119,8 @@ class Router:
             # a stranger who opens /admin sees an empty room and a 401, not
             # the queue — the gate lives server-side, where it belongs.
             return self._static("admin.html")
+        if path == "/studio":
+            return self._static("studio.html")
         return self._static(path.lstrip("/"))
 
     # ------------------------------------------------------------------ api
@@ -282,6 +294,38 @@ class Router:
                                    rl["artworksPerMinute"], 60):
                     return fail(429, "rate_limited")
                 return ok(artworks=self.art.list(query.get("sort") or "new"))
+
+            # ---- the studio (feature four): the campaign desk, anonymous by
+            # design — a campaign is a thing you make before it is a thing you
+            # own, and the rate bucket rides the address, not a seat.
+            if path == "/api/studio":
+                return 200, self.stud.capabilities(), None
+            if path == "/api/studio/campaigns":
+                return ok(campaigns=self.stud.list())
+            if path == "/api/studio/campaign":
+                try:
+                    scid = int(query.get("id") or "")
+                except ValueError:
+                    return fail(400, "bad_id")
+                seen = self.stud.view(scid)
+                if seen is None:
+                    return fail(404, "campaign_absent")
+                return ok(campaign=seen)
+            if path == "/api/studio/export":
+                if not self._allow(f"studio:{ip}",
+                                   rl.get("studioPerMinute", 60), 60):
+                    return fail(429, "studio_rate_limited")
+                try:
+                    scid = int(query.get("id") or "")
+                except ValueError:
+                    return fail(400, "bad_id")
+                blob, fname, _names = self.stud.export(scid)
+                if blob is None:
+                    return fail(404, "campaign_absent")
+                return (200, blob,
+                        {"Content-Type": "application/zip",
+                         "Content-Disposition":
+                             'attachment; filename="%s"' % fname})
             return fail(404, "unknown_api_route")
 
         if method == "POST":
@@ -598,6 +642,42 @@ class Router:
                 if out == "first":
                     return (201, {"recorded": row})
                 return ok(recorded=row, replaced=True)
+
+            if path == "/api/studio/campaigns":
+                # the one studio door that speaks: a brief in, a campaign and
+                # its rendered cards out. no seat needed — the IP bucket is
+                # the wall, and the JSON vow holds like every other write.
+                if ctype and not ctype.startswith("application/json"):
+                    return fail(415, "unsupported_media_type")
+                if not self._allow(f"studiowrite:{ip}",
+                                   rl.get("studioWritePerTenMinutes", 10), 600):
+                    return fail(429, "studio_write_rate_limited")
+                made, why = self.stud.create(body or {})
+                if made is None:
+                    return fail({"bad_project": 422, "bad_brief": 422,
+                                 "bad_days": 422, "bad_types": 422,
+                                 "bad_image_data": 422,
+                                 "bad_image_type": 422, "too_large": 422,
+                                 "unsupported_png": 422,
+                                 "studio_store_failed": 503}.get(why, 400), why)
+                return (201, {"campaign": made}, None)
+
+            if path == "/api/studio/regenerate":
+                if ctype and not ctype.startswith("application/json"):
+                    return fail(415, "unsupported_media_type")
+                if not self._allow(f"studiowrite:{ip}",
+                                   rl.get("studioWritePerTenMinutes", 10), 600):
+                    return fail(429, "studio_write_rate_limited")
+                b = body or {}
+                try:
+                    scid, said = int(b.get("campaign")), int(b.get("asset"))
+                except (TypeError, ValueError):
+                    return fail(400, "bad_id")
+                fresh, var, why = self.stud.regenerate(scid, said)
+                if fresh is None:
+                    return fail({"asset_absent": 404,
+                                 "campaign_absent": 404}.get(why, 400), why)
+                return ok(campaign=fresh, variant=var)
 
             if path == "/api/auth/logout":
                 s.end_session(cookies.get("PBSD"))

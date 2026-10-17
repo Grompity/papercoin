@@ -3070,6 +3070,442 @@ bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
           and "10000" not in _runsrc
           and "_read_body" in _runsrc
           and "while len(data) < length" in _runsrc, "the door regrew its wall")
+    # ---- P6T the studio: the campaign desk (feature four) -----------------
+    import base64 as _b64
+    import io as _io
+    import zipfile as _zip
+    from paperboard import studio as _stumod
+    _stenv = make_env(tmp="/tmp/paperboard-studio-self.sqlite3")
+    _sts, _sdb, _sx, _ss, _scid = _stenv
+    os.environ["PAPER_STUDIO_DIR"] = "/tmp/paperboard-studio-self"
+    _stud = _stumod.Studio(_sdb, _sts)
+    _sr = http_app.Router(_ss, _sts, _sdb, _sx)
+
+    def _sgo(method, path, query=None, headers=None, body=None):
+        _out = _sr.dispatch(method, path, query or {},
+                            dict({"x-forwarded-for": "probe"}, **(headers or {})),
+                            {}, body)
+        return _out[0], _out[1], (_out[2] if len(_out) > 2 else None)
+
+    _cfgT = _sts.pb["studio"]
+    _caps = _sgo("GET", "/api/studio")[1]
+    check("P6T the studio door opens honest: the capabilities view names what"
+          " actually answers — no keys are set in the battery's world, so the"
+          " deterministic planner is named as the speaker, the image hero is"
+          " OFF (opt-in by env, never by hope), the five card kinds ship in"
+          " the view, and every limit rides the shipped config (the battery"
+          " reads config.json's figures, never a constant)",
+          _caps.get("ok") is True and _caps.get("planner") == "deterministic"
+          and _caps.get("imageGen") == "off"
+          and len(_caps.get("types") or []) == 5
+          and _caps["limits"]["daysMax"] == _cfgT["daysMax"]
+          and _caps["limits"]["maxAssets"] == _cfgT["maxAssets"],
+          str(_caps)[:160])
+    check("P6T a stranger's /api/studio route still answers the house 404 and"
+          " the page door serves the studio shell (the route is a real page,"
+          " reachable from the mast, not a hash that goes nowhere)",
+          _sgo("GET", "/api/studio/nope")[1] == {"error": "unknown_api_route"}
+          and _sgo("GET", "/studio")[0] == 200
+          and b"studio.js" in _sgo("GET", "/studio")[1],
+          str(_sgo("GET", "/studio")[:2])[:80])
+
+    _mk = {"project": "PAPERBOARD",
+           "brief": "seven days of posting, playing, and climbing",
+           "days": 7, "types": ["xpost", "meme", "promo", "banner", "announce"]}
+    _made, _whyT = _stud.create(dict(_mk))
+    _rowsT = {r["id"]: dict(r) for r in _sdb.conn.execute(
+        "SELECT * FROM studio_assets WHERE campaign_id=?", (_made["id"],))}
+    _readyT = [a for a in _made["assets"] if a["status"] == "ready"]
+    _first = _made["assets"][0]
+    _blob_first = _sgo("GET", _first["href"])
+    _dims_route = _stumod.png_dims(_blob_first[1]) if _blob_first[0] == 200 else None
+    check("P6T a brief of seven days and five cards renders the full shelf:"
+          " 35 cards (the shipped cap of %d allows it), every ready row names"
+          " a file whose bytes actually open at /studio/assets/, the written"
+          " PNG header (re-read from the served bytes) is the ledger's own"
+          " width and height — QC's authority is the file, not the claim —"
+          " and no ready row carries a zero-byte lie"
+          % _cfgT["maxAssets"],
+          len(_rowsT) == 35 and len(_readyT) == 35
+          and _blob_first[0] == 200 and _dims_route == (_first["width"],
+                                                        _first["height"])
+          and all(a["bytes"] > 0 for a in _readyT),
+          str(_made["qc"])[:160])
+    check("P6T the plan is a structured artifact, not a paragraph: objective,"
+          " audience, and core message stand named; each of the %d days"
+          " carries a purpose, a concept, a caption, and a call to action;"
+          " the concepts are as distinct as the days (no seven variations of"
+          " one joke); and the QC that rides the campaign proves it back"
+          " (%d concepts distinct of %d days, text ok)",
+          all(k in _made["plan"] for k in ("objective", "audience",
+                                           "core_message", "days"))
+          and len(_made["plan"]["days"]) == 7
+          and all(all(k in d for k in ("purpose", "concept", "caption", "cta",
+                                       "platform"))
+                  for d in _made["plan"]["days"])
+          and _made["qc"]["concepts_distinct"] == _made["qc"]["days"] == 7
+          and _made["qc"]["text_ok"] is True,
+          str(_made["qc"])[:120])
+
+    _walls = [
+        ({"brief": "x", "types": ["meme"]}, "bad_project"),
+        ({"project": "P", "types": ["meme"]}, "bad_brief"),
+        ({"project": "P", "brief": " ", "types": ["meme"]}, "bad_brief"),
+        ({"project": "P", "brief": "x", "days": "7", "types": ["meme"]}, "bad_days"),
+        ({"project": "P", "brief": "x", "days": _cfgT["daysMax"] + 1,
+          "types": ["meme"]}, "bad_days"),
+        ({"project": "P", "brief": "x", "types": []}, "bad_types"),
+        ({"project": "P", "brief": "x", "types": ["nope"]}, "bad_types"),
+        ({"project": "P", "brief": "x", "types": ["meme"],
+          "ref_b64": "!!!"}, "bad_image_data"),
+        ({"project": "P", "brief": "x", "types": ["meme"],
+          "ref_b64": _b64.b64encode(b"hello world").decode()}, "bad_image_type"),
+        ({"project": "P", "brief": "x", "types": ["meme"],
+          "ref_b64": _b64.b64encode(b"x" * (_cfgT["maxRefBytes"] + 1)).decode()},
+         "too_large"),
+    ]
+    _wallgot = []
+    for _bw, _bwhy in _walls:
+        _v, _w = _stud.create(_bw)
+        _wallgot.append(_w if _v is None else "PASSED?!")
+    check("P6T validation refuses, never trusts — and a browser is a witness,"
+          " not an authority: a nameless project, an empty or blank brief, a"
+          " digit-STRING of days (the door takes whole numbers, not digits"
+          " wearing number clothes), days over the shipped cap, an empty card"
+          " list and a stranger card kind, junk base64, a base64 blob that is"
+          " no image, and a reference over the shipped byte ceiling — every"
+          " wall reads the shipped config, and none of the refusals wrote a"
+          " campaign",
+          _wallgot == [_b for _a, _b in _walls], str(_wallgot))
+
+    class _FakePlanner:
+        """a model with a script: configured by shape, never by network."""
+        configured = True
+        model = "fake-soliloquy"
+
+        def __init__(self, answer):
+            self.answer = answer
+
+        def plan(self, brief, days_n):
+            return self.answer
+
+    _planT = {"objective": "the timeline posts again", "audience": "the board",
+              "core_message": "post, earn, climb",
+              "days": [{"day": 1, "purpose": "the hook", "concept": "alpha",
+                       "caption": "day one", "cta": "join", "visual": "mascot leads"},
+                      {"day": 2, "purpose": "the joke", "concept": "beta",
+                       "caption": "day two", "cta": "post", "visual": "mascot winks"}]}
+    _stud.llm = _FakePlanner(_planT)
+    _spoke, _ = _stud.create(dict(_mk, days=2, types=["meme"]))
+    _stud.llm = _FakePlanner("rejected")
+    _denied, _ = _stud.create(dict(_mk, days=2, types=["meme"]))
+    _stud.llm = _FakePlanner("unreachable")
+    _gone, _ = _stud.create(dict(_mk, days=2, types=["meme"]))
+    _stud.llm = _stumod.LlmPlanner({})           # the battery's honest default
+    _bad_plan = _stumod._validate_plan({"objective": "o", "audience": "a",
+                                        "core_message": "m",
+                                        "days": [{"day": 1, "purpose": "p",
+                                                 "concept": "c"}]}, 1)
+    check("P6T an LLM speaks the plan only inside its schema: model words that"
+          " fit the contract book the campaign as the model's own (the engine"
+          " names it); words rejected by the schema fall to the deterministic"
+          " voice and SAY SO in the engine line (the deferral doctrine, four"
+          " lanes strong); an unreachable model falls the same way; and the"
+          " validator refuses a day missing its caption in the hand — no"
+          " network is spent in this battery, the fake planner wears the"
+          " configured coat alone",
+          _spoke["engine"] == "fake-soliloquy"
+          and _spoke["plan"]["core_message"] == "post, earn, climb"
+          and _denied["engine"] == "deterministic (model rejected)"
+          and _gone["engine"] == "deterministic (model unreachable)"
+          and _bad_plan is None,
+          str((_spoke["engine"], _denied["engine"], _gone["engine"])))
+
+    _tgt = _made["assets"][1]
+    _keep_before = {a["id"]: (a["file"], a["bytes"], a["created_at"])
+                    for a in _made["assets"] if a["id"] != _tgt["id"]}
+    _fresh, _varT, _rw = _stud.regenerate(_made["id"], _tgt["id"])
+    _t_new = [a for a in _fresh["assets"] if a["id"] == _tgt["id"]][0]
+    _keep_after = {a["id"]: (a["file"], a["bytes"], a["created_at"])
+                   for a in _fresh["assets"] if a["id"] != _tgt["id"]}
+    check("P6T one card answers for itself: the rerolled card comes back ready"
+          " at variant %d with a fresh file and fresh bytes (the concept and"
+          " the pose rotate so the take is genuinely different), and every"
+          " other card keeps its file, its bytes, and its minute — accepted"
+          " work is never collateral. the missing-card pairing answers"
+          " asset_absent, and the qc after the reroll again certifies the"
+          " full shelf",
+          _varT == 1 and _t_new["status"] == "ready"
+          and _t_new["file"] != _tgt["file"] and _keep_after == _keep_before
+          and _fresh["qc"]["assets_ready"] == _fresh["qc"]["assets_total"],
+          str(_t_new)[:120])
+
+    _zx, _zpayload, _zheads = _sgo("GET", "/api/studio/export",
+                                   {"id": str(_made["id"])})
+    _znf = _zip.ZipFile(_io.BytesIO(_zpayload))
+    _znamed = set(_znf.namelist())
+    _zmani = set()
+    _zroot = _made["slug"] + "-" + str(_made["id"]) + "/"
+    for _n in _znamed:
+        if _n.endswith("manifest.json"):
+            _zmani = set(json.loads(_znf.read(_n)))
+    _ready_names = {"assets/" + a["file"] for a in _fresh["assets"]
+                    if a["status"] == "ready" and a["file"]}
+    _phantom = [m for m in _zmani if (_zroot + m) not in _znamed
+                and m not in ("manifest.json",)]
+    check("P6T the ZIP is the campaign's receipt and it extracts: the door"
+          " answers with real archive bytes (Content-Type plus a named"
+          " download), testzip passes, and the manifest is a truth — every"
+          " ready card's file is inside both the archive and the manifest,"
+          " the plan, brand, calendar, and per-day copy all ride along, and"
+          " nothing the manifest names is missing from the archive (the"
+          " manifest does not claim phantom paper)",
+          _zx == 200 and _zheads["Content-Type"] == "application/zip"
+          and "filename=" in _zheads["Content-Disposition"]
+          and _znf.testzip() is None and len(_znf.namelist()) >= 40
+          and _ready_names <= _zmani and not _phantom,
+          str((len(_znamed), len(_zmani), _phantom[:2]))[:120])
+    _znf.close()
+    _lost = _ready_names.copy()
+    os.remove(os.path.join(_stud.root, sorted(_lost)[0].split("/")[-1]))
+    _zx2, _zp2, _ = _sgo("GET", "/api/studio/export", {"id": str(_made["id"])})
+    _znf2 = _zip.ZipFile(_io.BytesIO(_zp2))
+    _nm2 = set(_znf2.namelist())
+    for _n in _nm2:
+        if _n.endswith("manifest.json"):
+            _zm2 = set(json.loads(_znf2.read(_n)))
+    _znf2.close()
+    check("P6T and the receipt stays honest under loss: a card removed from"
+          " the disk after the fact is neither packed nor listed — the"
+          " manifest never claims a file the archive never met",
+          len(_nm2) + 1 == len(_znamed) and sorted(_lost)[0] not in _zm2,
+          str((len(_nm2), len(_znamed)))[:80])
+
+    _noRef, _ = _stud.create({"project": "STANDALONE", "brief": "x",
+                              "days": 2, "types": ["xpost"]})
+    _refPng = _stumod.png_write(2, 2, bytes((240, 20, 20, 255)) * 4)
+    _withRef, _ = _stud.create({"project": "STANDALONE", "brief": "x",
+                                "days": 2, "types": ["xpost"],
+                                "ref_b64": "data:image/png;base64,"
+                                           + _b64.b64encode(_refPng).decode()})
+    _jpgRef, _ = _stud.create({"project": "STANDALONE", "brief": "x",
+                               "days": 2, "types": ["xpost"],
+                               "ref_b64": _b64.b64encode(
+                                   b"\xff\xd8\xff\xe0junkjunkjunk").decode()})
+    check("P6T the brand read tells the truth about itself: with no reference"
+          " the palette is SUGGESTED (the PAPER defaults, no pretending an"
+          " image spoke); a PNG reference is EXTRACTED (buckets from the"
+          " bytes, roles named, the note still leaves voice to the human);"
+          " and a JPEG reference is KEPT BUT NOT DECODED — the shelf does not"
+          " fake a stdlib jpeg decoder it does not own, and the campaign"
+          " still ships its cards",
+          _noRef["brand"]["source"] == "suggested"
+          and _withRef["brand"]["source"] == "extracted"
+          and set(_withRef["brand"]["roles"]) >= {"paper", "press", "accent"}
+          and _jpgRef["brand"]["source"] == "kept, not decoded"
+          and _jpgRef["qc"]["assets_ready"] == 2,
+          str((_noRef["brand"]["source"], _withRef["brand"]["source"],
+               _jpgRef["brand"]["source"])))
+
+    _wallsT = []
+    for _wp, _wcode in (("/studio/assets/bogus.png", "file_absent"),
+                        ("/studio/assets/bogus.txt", "file_absent"),
+                        ("/studio/assets/s9-a9-xpost-v0-deadbeef.png",
+                         "file_absent")):
+        _o = _sgo("GET", _wp)
+        _wallsT.append((_o[0] == 404, _o[1] == {"error": _wcode}))
+    _wide, _ = _stud.create(dict(_mk, days=_cfgT["daysMax"],
+                                 types=["xpost", "meme", "promo", "banner",
+                                        "announce"]))
+    check("P6T the file door walls first: a stranger's name, a stranger's"
+          " extension, and a name whose hex limb is one finger too long all"
+          " answer file_absent before the disk is touched — and when the"
+          " week is as long as the shipped cap allows and the five cards"
+          " would overflow it (%d days × 5 > %d), the calendar does not lie:"
+          " the cards rotate across the days and the plan's own schedule"
+          " note says the cap spoke"
+          % (_cfgT["daysMax"], _cfgT["maxAssets"]),
+          all(ok for _a, ok in _wallsT)
+          and len(_wide["assets"]) <= _cfgT["maxAssets"]
+          and "rotate" in _wide["plan"]["schedule_note"],
+          str((len(_wide["assets"]), _wide["plan"]["schedule_note"]))[:140])
+
+    _sroute = open(os.path.join(os.path.dirname(__file__), "paperboard",
+                                "http_app.py"), encoding="utf-8").read()
+    _smast = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                  "components", "masthead.js"), encoding="utf-8").read()
+    _sjs = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                 "studio.js"), encoding="utf-8").read()
+    _shtml = open(os.path.join(os.path.dirname(__file__), "..", "studio.html"),
+                  encoding="utf-8").read()
+    check("P6T the routes and the shelf agree, branch for branch: the studio"
+          " doors sit in their own method branches (the GET reads after the"
+          " wall's lane, the create and reroll in the POST body where the"
+          " JSON vow lives), the file lane precedes the generic static fall,"
+          " the page door rides beside admin's, the mast gained its sixth"
+          " door without touching the five pinned prints (the studio link"
+          " wears its own class, so the five-name count the redress pinned"
+          " stays the truth), and the studio's own module speaks only the"
+          " routes the server actually keeps",
+          _sroute.rindex('if path == "/api/studio/campaigns":')
+          > _sroute.index('if method == "POST":')
+          and _sroute.index('"/studio/assets/"') < _sroute.index('if path == "/"')
+          and _sroute.count('class="mast__link"') == 0          # (the pins own that count)
+          and _smast.count('class="mast__link"') == 5
+          and 'mast__link--studio' in _smast and 'href="/studio"' in _smast
+          and all(_k in _sjs for _k in ("/api/studio", "/api/studio/campaigns",
+                                        "/api/studio/regenerate",
+                                        "/api/studio/export"))
+          and "studio.css" in _shtml and "js/studio.js" in _shtml,
+          str([_smast.count('class="mast__link"')])[:40])
+    _cssT = open(os.path.join(os.path.dirname(__file__), "..", "css",
+                  "paperboard.css"), encoding="utf-8").read()
+    check("P6T the phone keeps its thumb: the studio door joins the bottom"
+          " index as a sixth track, the five-track rule stays standing as"
+          " printed history, and the studio's own sheet adds no box-shadow"
+          " and no gradient to the desk (the press vow holds on the new"
+          " page too)",
+          _cssT.count("repeat(5, 1fr)") >= 1
+          and "repeat(6, 1fr)" in _cssT[_cssT.index("P6T"):]
+          and "box-shadow" not in open(
+              os.path.join(os.path.dirname(__file__), "..", "css",
+                           "studio.css"), encoding="utf-8").read()
+          and "gradient" not in open(
+              os.path.join(os.path.dirname(__file__), "..", "css",
+                           "studio.css"), encoding="utf-8").read())
+    # ---- P6U the studio's repair chapter: the journey the user rode -----
+    # (the 502 hunt: every studio refusal must ride a JSON error key, the
+    #  rate wall must be the wall, and a stranger campaign must not feel a
+    #  reroll. the upload matrix rides the ROUTE, not the helper.)
+    _mast_path = os.path.join(os.path.dirname(__file__), "..", "public",
+                              "paper-mascot.jpeg")
+    _mast_b64 = _b64.b64encode(open(_mast_path, "rb").read()).decode()
+    _pngU = _stumod.png_write(2, 2, bytes((9, 200, 9, 255)) * 4)
+    _refpng_u = _b64.b64encode(_pngU).decode()
+    _u_shapes = [
+        ("png ref rides the route", {"project": "U", "brief": "x", "days": 1,
+                                     "types": ["meme"],
+                                     "ref_b64": "data:image/png;base64,"
+                                                + _refpng_u},
+         201, "extracted"),
+        ("jpeg ref rides the route", {"project": "U", "brief": "x", "days": 1,
+                                      "types": ["meme"],
+                                      "ref_b64": "data:image/jpeg;base64," + _mast_b64},
+         201, "kept, not decoded"),
+        ("gif ref rides the route", {"project": "U", "brief": "x", "days": 1,
+                                     "types": ["meme"],
+                                     "ref_b64": _b64.b64encode(
+                                         b"GIF89a junkjunkjunk").decode()},
+         201, "kept, not decoded"),
+        ("webp ref rides the route", {"project": "U", "brief": "x", "days": 1,
+                                      "types": ["meme"],
+                                      "ref_b64": _b64.b64encode(
+                                          b"RIFF\x00\x00\x00\x00WEBPVP8 ").decode()},
+         201, "kept, not decoded"),
+        ("junk base64 answers via the route", {"project": "U", "brief": "x",
+                                               "days": 1, "types": ["meme"],
+                                               "ref_b64": "!!!"}, 422, None),
+        ("non-image bytes answer via the route", {"project": "U", "brief": "x",
+                                                   "days": 1, "types": ["meme"],
+                                                   "ref_b64": _b64.b64encode(
+                                                       b"plain text plain text").decode()},
+         422, None),
+    ]
+    _ugot = []
+    for _un, _ub, _ucode, _usrc in _u_shapes:
+        _us = _sgo("POST", "/api/studio/campaigns", body=_ub,
+                   headers={"x-forwarded-for": "matrix-u"})["payload"] \
+            if False else _sgo("POST", "/api/studio/campaigns", body=_ub,
+                               headers={"x-forwarded-for": "matrix-u"})
+        _ugot.append((_us[0] == _ucode,
+                      _us[1].get("error") if _ucode != 201 else
+                      (_us[1].get("campaign") or {}).get("brand", {}).get("source") == _usrc
+                      if _usrc else True))
+    check("P6U the upload matrix rides the door, not the helper: a png reference"
+          " is EXTRACTED, a jpeg one is KEPT-NOT-DECODED (the real mascot file"
+          " rides the wire), gif and webp arrive kept-not-decoded by name of"
+          " their own bytes, junk base64 and plain text answer 422 with their"
+          " named keys — and the oversize wall (one byte past the shipped"
+          " ceiling) answers too_large, never a stack trace and never a bare"
+          " status",
+          all(_ok and ok for _ok, ok in _ugot)
+          and (lambda _o: _o[0] == 422 and _o[1] == {"error": "too_large"})(
+              _sgo("POST", "/api/studio/campaigns",
+                   body={"project": "U", "brief": "x", "days": 1,
+                         "types": ["meme"],
+                         "ref_b64": _b64.b64encode(
+                             b"x" * (_cfgT["maxRefBytes"] + 1)).decode()},
+                   headers={"x-forwarded-for": "heavy-u"})),
+          str([(s[0], s[1]) for s in _ugot])[:150])
+    # the exotic-png lane: a png the shelf cannot open is a 422 by NAME
+    _stub = lambda raw: (_ for _ in ()).throw(
+        _stumod.StudioError("unsupported_png")) if False else None
+    _old_pr = _stumod.png_read
+    def _boom(_raw):
+        raise _stumod.StudioError("unsupported_png")
+    _stumod.png_read = _boom
+    _deep = _sgo("POST", "/api/studio/campaigns",
+                 body={"project": "U", "brief": "x", "days": 1,
+                       "types": ["meme"],
+                       "ref_b64": _b64.b64encode(_refPng).decode()},
+                 headers={"x-forwarded-for": "deep-u"})
+    _stumod.png_read = _old_pr
+    check("P6U a reference the stdlib shelf cannot crack does not sink the"
+          " campaign and does not fake an extraction: it sails with the"
+          " honest brand 'kept, not decoded' (deferral, not error), while the"
+          " studio POST doors still answer every refusal by NAME — the X-era"
+          " fall-through default is 502, and the studio map is total, so no"
+          " studio refusal can masquerade as the legacy gateway default"
+          " (the root cause of the user's bare 502 was never the studio's"
+          " code — it was a tier that does not carry the studio routes)",
+      _deep[0] == 201
+      and "kept, not decoded" in _deep[1]["campaign"]["brand"]["source"]
+      and _sroute.rindex('"/api/studio/regenerate"')
+          < _sroute.index(".get(reason, 502)"),
+      str(_deep)[:90])
+    _isoC = _sgo("POST", "/api/studio/campaigns",
+                  body={"project": "ISOC", "brief": "x", "days": 2,
+                        "types": ["xpost"]},
+                  headers={"x-forwarded-for": "iso-c"})[1]["campaign"]
+    _isoD = _sgo("POST", "/api/studio/campaigns",
+                  body={"project": "ISOD", "brief": "x", "days": 1,
+                        "types": ["meme"]},
+                  headers={"x-forwarded-for": "iso-d"})[1]["campaign"]
+    _d_before = [(a["id"], a["file"], a["bytes"]) for a in _isoD["assets"]]
+    _sgo("POST", "/api/studio/regenerate",
+         body={"campaign": _isoC["id"], "asset": _isoC["assets"][0]["id"]},
+         headers={"x-forwarded-for": "iso-c"})
+    _d_now = _sgo("GET", "/api/studio/campaign", {"id": str(_isoD["id"])})[1]["campaign"]
+    _d_after = [(a["id"], a["file"], a["bytes"]) for a in _d_now["assets"]]
+    _zipC = _zip.ZipFile(_io.BytesIO(_sgo("GET", "/api/studio/export",
+                                          {"id": str(_isoC["id"])})[1]))
+    _namesC = set(_zipC.namelist())
+    _crossed = [n for n in _namesC for a in _d_after if a[1] and a[1] in n]
+    _zipC.close()
+    check("P6U campaigns keep their own counsel: rerolling a card of campaign"
+          " C leaves every card of campaign D byte-for-byte where it stood,"
+          " and the archive of C carries not one filename of D (no crossed"
+          " assets through the ledger, the file door, or the receipt)",
+          _d_after == _d_before and not _crossed,
+          str((len(_d_after), _crossed[:2]))[:90])
+    _wmax = stY2.pb["ratelimit"]["studioWritePerTenMinutes"]
+    _hammer = [_sgo("POST", "/api/studio/campaigns",
+                    body={"project": "H", "brief": "x", "days": 1,
+                          "types": ["meme"]},
+                    headers={"x-forwarded-for": "hammer-u"})[0]
+               for _hi in range(_wmax)]
+    _wallU = _sgo("POST", "/api/studio/campaigns",
+                  body={"project": "H", "brief": "x", "days": 1,
+                        "types": ["meme"]},
+                  headers={"x-forwarded-for": "hammer-u"})
+    check("P6U the write wall is the wall, named: %d creates from one address"
+          " fill the shipped bucket (%d per ten minutes as configured) and"
+          " the next answer is a 429 studio_write_rate_limited — the"
+          " repeated-click class the redress warned of has a door-side guard"
+          " and a voice" % (_wmax, _wmax),
+          all(_h == 201 for _h in _hammer) and _wallU[0] == 429
+          and _wallU[1] == {"error": "studio_write_rate_limited"},
+          str(_hammer)[:80])
     print("failures:", len(FAILURES))
     return len(FAILURES)
 

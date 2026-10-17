@@ -18,6 +18,7 @@ export function Masthead() {
           <a class="mast__link" href="#worldmap">Map</a>
           <a class="mast__link" href="#arcade">Arcade</a>
           <a class="mast__link" href="#tokens">Tokens</a>
+          <a class="mast__link mast__link--studio" href="/studio" aria-label="PAPER Studio — campaign production">Studio</a>
         </nav>
         <a class="btn btn--pill mast__cta" href="#buy">Buy ${cfg.ticker}</a>
       </div>

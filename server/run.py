@@ -143,15 +143,26 @@ class Handler(BaseHTTPRequestHandler):
                                  f" Max-Age={days * 86400}")
             elif payload.get("loggedOut"):
                 self.send_header("Set-Cookie", "PBSD=; Path=/; Max-Age=0")
+        raw_body = not isinstance(payload, (dict, list))
         if isinstance(extra, dict):            # route-level headers (Location, cookies…)
             for hk, hv in extra.items():
+                if raw_body and hk == "Content-Type":
+                    continue        # the raw branch below speaks the body's type
                 self.send_header(hk, hv)
         if isinstance(payload, (dict, list)):
             blob = json.dumps(payload).encode()
             self.send_header("Content-Type", "application/json; charset=utf-8")
         else:
             blob = payload if isinstance(payload, bytes) else str(payload).encode()
-            ctype = extra if isinstance(extra, str) else "text/plain; charset=utf-8"
+            if isinstance(extra, str):
+                ctype = extra
+            elif isinstance(extra, dict):
+                # a binary body may carry its own type in the header dict —
+                # this is the lane the studio's ZIP rides (type plus a
+                # Content-Disposition), and nothing older speaks that shape.
+                ctype = extra.get("Content-Type", "text/plain; charset=utf-8")
+            else:
+                ctype = "text/plain; charset=utf-8"
             self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(blob)))
         self.end_headers()

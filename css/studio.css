@@ -1,0 +1,139 @@
+/* ============================================================
+   PAPER STUDIO — studio.css
+   a press desk, not a SaaS dashboard: two columns, hairlines,
+   mono micro-voices, zero shadow, one green. the tokens file owns
+   every colour; this file only sets the desk.
+   ============================================================ */
+
+.studio .st-head { padding: var(--sp-4) 0 var(--sp-3) }
+.studio .st-title { font-family: var(--serif); font-weight: 800;
+  font-size: var(--fs-h2); line-height: 1.05; margin: .35rem 0 .5rem }
+.studio .st-sub { color: var(--cream-dim); max-width: 62ch; margin: 0 }
+
+.studio .st-cap { display: flex; flex-wrap: wrap; gap: .5rem .9rem;
+  margin-top: var(--sp-2) }
+.studio .st-chip { font-family: var(--mono); font-size: var(--fs-caption);
+  letter-spacing: .08em; text-transform: uppercase; color: var(--cream-dim);
+  border: 1px solid var(--line); padding: .32em .7em; }
+.studio .st-chip b { color: var(--green); font-weight: 500 }
+
+.studio .st-grid { display: grid; gap: var(--sp-4);
+  grid-template-columns: minmax(340px, 5fr) minmax(0, 7fr);
+  align-items: start; margin-top: var(--sp-3) }
+
+/* the brief desk */
+.studio .st-brief .panel__head h2 { font-family: var(--serif); font-weight: 800;
+  font-size: var(--fs-h3) }
+.studio .st-stage { font-family: var(--mono); font-size: var(--fs-kicker);
+  letter-spacing: .12em; text-transform: uppercase; color: var(--cream-faint) }
+.studio .st-row { display: grid; gap: .4rem }
+.studio .st-row > span { font-family: var(--mono); font-size: var(--fs-kicker);
+  letter-spacing: .14em; text-transform: uppercase; color: var(--cream-dim) }
+.studio .st-pair { display: grid; gap: var(--sp-2);
+  grid-template-columns: 1fr 1fr }
+.studio .st-field { background: var(--ink); color: var(--cream);
+  border: 1px solid var(--line); border-radius: var(--r-field);
+  padding: .7em .9em; font: inherit; min-width: 0 }
+.studio .st-field:focus-visible { outline: none; border-color: var(--green) }
+.studio .st-field::placeholder { color: var(--cream-faint) }
+.studio textarea.st-field { resize: vertical; min-height: 5.5em; line-height: 1.45 }
+.studio .st-field--num { max-width: 7ch }
+.studio .st-field--file { font-family: var(--mono); font-size: var(--fs-caption);
+  padding: .55em .9em }
+.studio .st-field--file::file-selector-button { border: 1px solid var(--line);
+  background: var(--ink-2); color: var(--cream); font-family: var(--mono);
+  font-size: var(--fs-caption); padding: .5em .8em; margin-inline-end: .8em }
+
+.studio .st-kinds { display: grid; gap: .35rem;
+  grid-template-columns: repeat(auto-fit, minmax(13ch, 1fr)) }
+.studio .st-kinds label { font-family: var(--mono); font-size: var(--fs-caption);
+  letter-spacing: .06em; text-transform: uppercase; color: var(--cream-dim);
+  border: 1px solid var(--line); padding: .5em .6em; cursor: pointer;
+  display: inline-flex; gap: .5em; align-items: center; justify-content: center }
+.studio .st-kinds label:has(input:checked) { color: var(--green-ink);
+  border-color: var(--green-ink); background:
+    color-mix(in srgb, var(--green) 12%, transparent) }
+.studio .st-kinds input { accent-color: var(--green) }
+
+.studio .st-formfoot { display: flex; align-items: center; gap: var(--sp-2);
+  margin-top: .2rem }
+.studio .st-err { margin: var(--sp-1) 0 0; font-family: var(--mono);
+  font-size: var(--fs-caption); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--tan) }
+
+/* the campaign desk */
+.studio .st-out { display: grid; gap: var(--sp-3); min-width: 0 }
+.studio .st-hush { color: var(--cream-faint); font-size: .86rem; line-height: 1.6 }
+
+.studio .st-sec .panel__head h2 { font-family: var(--serif); font-weight: 800;
+  font-size: var(--fs-h3) }
+.studio .st-sec .panel__body { display: grid; gap: var(--sp-2) }
+
+.studio .st-days { display: grid; gap: .6rem }
+.studio .st-day { display: grid; gap: .18rem;
+  border-left: 2px solid var(--line); padding-left: .9rem }
+.studio .st-day__top { display: flex; gap: .8rem; align-items: baseline;
+  font-family: var(--mono); font-size: var(--fs-kicker); letter-spacing: .12em;
+  text-transform: uppercase; color: var(--cream-faint) }
+.studio .st-day__top b { color: var(--green); font-weight: 500 }
+.studio .st-day__concept { color: var(--cream); line-height: 1.4 }
+.studio .st-day__cap { color: var(--cream-dim); line-height: 1.45; font-size: .9rem }
+.studio .st-day__cta { font-family: var(--mono); font-size: var(--fs-caption);
+  text-transform: uppercase; letter-spacing: .08em; color: var(--gold) }
+
+.studio .st-swatch { display: flex; flex-wrap: wrap; gap: .6rem }
+.studio .st-role { display: inline-flex; gap: .55em; align-items: center;
+  font-family: var(--mono); font-size: var(--fs-caption); letter-spacing: .08em;
+  text-transform: uppercase; color: var(--cream-dim);
+  border: 1px solid var(--line); padding: .4em .7em .4em .4em }
+.studio .st-role i { width: 18px; height: 18px; background: var(--sw, var(--cream)); }
+.studio .st-note { color: var(--cream-faint); font-size: .84rem; margin: .2rem 0 0;
+  line-height: 1.5 }
+
+/* the card shelf */
+.studio .st-shelf { display: grid; gap: var(--sp-2);
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)) }
+.studio .st-card { display: grid; gap: .55rem; border: 1px solid var(--line);
+  border-radius: var(--r-card); padding: .9rem; min-width: 0 }
+.studio .st-card img { display: block; width: 100%; height: auto;
+  background: var(--ink); border: 1px solid var(--line) }
+.studio .st-card__meta { display: grid; gap: .15rem }
+.studio .st-card__name { font-family: var(--mono); font-size: var(--fs-caption);
+  letter-spacing: .08em; color: var(--cream); word-break: break-all }
+.studio .st-card__use { font-size: .8rem; color: var(--cream-dim) }
+.studio .st-card__dims { font-family: var(--mono); font-size: var(--fs-caption);
+  color: var(--cream-faint) }
+.studio .st-card__row { display: flex; flex-wrap: wrap; gap: .6rem;
+  align-items: center; justify-content: space-between }
+.studio .st-state { font-family: var(--mono); font-size: var(--fs-caption);
+  letter-spacing: .1em; text-transform: uppercase; color: var(--green-ink) }
+.studio .st-state--failed { color: var(--tan) }
+.studio .st-card__acts { display: flex; gap: .5rem }
+.studio .st-card .st-regen[disabled] { opacity: .5; cursor: wait }
+.studio .st-card__note { font-family: var(--mono); font-size: var(--fs-caption);
+  color: var(--cream-faint) }
+
+.studio .st-acts { display: flex; flex-wrap: wrap; gap: var(--sp-2);
+  align-items: center; justify-content: space-between }
+.studio .st-qc { font-family: var(--mono); font-size: var(--fs-caption);
+  letter-spacing: .06em; text-transform: uppercase; color: var(--cream-dim) }
+.studio .st-qc b { color: var(--green); font-weight: 500 }
+
+.studio .st-foot { color: var(--cream-faint); font-size: .82rem;
+  padding: var(--sp-4) 0 var(--sp-3); margin: 0 }
+.studio .st-foot a { color: var(--cream-dim); border-bottom: 1px solid var(--line) }
+.studio .st-foot a:hover { color: var(--green) }
+
+/* the phone sets the desk in one column and the thumb rail counts six */
+@media (max-width: 980px) {
+  .studio .st-grid { grid-template-columns: 1fr }
+  .studio .st-pair { grid-template-columns: 1fr }
+}
+@media (max-width: 720px) {
+  .mast__links { position: fixed; left: 0; right: 0; bottom: 0;
+    display: grid; grid-template-columns: repeat(6, 1fr);
+    justify-items: center; align-items: center;
+    background: var(--ink-2); border-top: 1px solid var(--line);
+    padding: .7rem .3rem calc(.7rem + env(safe-area-inset-bottom, 0px)) }
+  .studio .st-grid { padding-bottom: 84px }
+}

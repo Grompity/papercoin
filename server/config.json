@@ -91,6 +91,21 @@
       ]
     },
 
+    "studio": {
+      "daysDefault": 7,
+      "daysMax": 14,
+      "maxAssets": 36,
+      "maxRefBytes": 2500000,
+      "listMax": 12,
+      "llm": {
+        "baseUrl": "", "apiKey": "", "model": "qwen-plus", "timeoutSeconds": 40
+      },
+      "image": {
+        "baseUrl": "", "apiKey": "", "model": "wanx2.1-turbo",
+        "enabled": false, "timeoutSeconds": 90
+      }
+    },
+
     "scoring": {
       "version": "pb-v3.0",
       "basePerPost": 10,
@@ -154,7 +169,9 @@
       "votePerTenMinutes": 12,
       "worldmapPerMinute": 30,
       "locationPerTenMinutes": 30,
-      "scorePerTenMinutes": 12
+      "scorePerTenMinutes": 12,
+      "studioPerMinute": 60,
+      "studioWritePerTenMinutes": 10
     },
 
     "account": {
