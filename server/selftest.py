@@ -3350,8 +3350,9 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
     for _n in _znamed:
         if _n.endswith("manifest.json"):
             _zmani = set(json.loads(_znf.read(_n)))
-    _ready_names = {"assets/" + a["file"] for a in _fresh["assets"]
-                    if a["status"] == "ready" and a["file"]}
+    _ready_names = {"assets/" + _stumod._zip_entry(_made["plan"]["days"], _a)
+                    for _a in _fresh["assets"]
+                    if _a["status"] == "ready" and _a["file"]}
     _phantom = [m for m in _zmani if (_zroot + m) not in _znamed
                 and m not in ("manifest.json",)]
     check("P6T the ZIP is the campaign's receipt and it extracts: the door"
@@ -3367,8 +3368,12 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
           and _ready_names <= _zmani and not _phantom,
           str((len(_znamed), len(_zmani), _phantom[:2]))[:120])
     _znf.close()
-    _lost = _ready_names.copy()
-    os.remove(os.path.join(_stud.root, sorted(_lost)[0].split("/")[-1]))
+    _lost = sorted(_ready_names)[0]
+    _lostRow = next(_a for _a in _fresh["assets"]
+                    if _a["status"] == "ready" and _a["file"]
+                    and "assets/" + _stumod._zip_entry(_made["plan"]["days"],
+                                                       _a) == _lost)
+    os.remove(os.path.join(_stud.root, _lostRow["file"]))
     _zx2, _zp2, _ = _sgo("GET", "/api/studio/export", {"id": str(_made["id"])})
     _znf2 = _zip.ZipFile(_io.BytesIO(_zp2))
     _nm2 = set(_znf2.namelist())
@@ -3379,7 +3384,8 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
     check("P6T and the receipt stays honest under loss: a card removed from"
           " the disk after the fact is neither packed nor listed — the"
           " manifest never claims a file the archive never met",
-          len(_nm2) + 1 == len(_znamed) and sorted(_lost)[0] not in _zm2,
+          len(_nm2) + 1 == len(_znamed) and _lost not in _zm2
+          and _zroot + _lost not in _nm2,
           str((len(_nm2), len(_znamed)))[:80])
 
     _noRef, _ = _stud.create({"project": "STANDALONE", "brief": "x",
@@ -3607,6 +3613,296 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
           all(_h == 201 for _h in _hammer) and _wallU[0] == 429
           and _wallU[1] == {"error": "studio_write_rate_limited"},
           str(_hammer)[:80])
+    # ---- P6V (the writing desk): studio's second morning. the campaign now
+    # ---- opens with a strategy, the post is the week's unit, and the copy
+    # ---- button only says Copied when the copy genuinely happened. every
+    # ---- pin is structural — the shape of the plan, the honesty of the QC,
+    # ---- the receipt's ledgers — and none of them chases the prose word. --
+    _v2, _ = _stud.create(dict(_mk, types=["xpost", "meme"]))
+    _vp, _vq = _v2["plan"], _v2["qc"]
+    _vdays = _vp["days"]
+    _vposts = [_p for _d in _vdays for _p in _d["posts"]]
+    check("P6V a campaign opens with a strategy and not a paragraph: the plan"
+          " names an objective, an audience, a core message, a strategy, an"
+          " outcome, and the week's run; every day carries a theme and a"
+          " reason it matters; every day carries its posts (a two-card brief"
+          " posts twice a day), so the shelf's cards and the plan's posts are"
+          " one and the same shape",
+          all(_k in _vp for _k in ("objective", "audience", "core_message",
+                                   "strategy", "outcome", "arc", "days"))
+          and len(_vdays) == 7
+          and all(isinstance(_d.get("theme"), str) and _d["theme"]
+                  and isinstance(_d.get("why"), str) and _d["why"]
+                  and len(_d.get("posts") or []) == 2 for _d in _vdays),
+          str(_vp)[:140])
+    check("P6V posts are structured and not slogans: every post speaks an id,"
+          " a purpose, a concept, a caption, a call to action, and its own"
+          " internal note; the ids ride position (dXX-pYY) and never repeat"
+          " across the campaign",
+          all(all(_k in _p for _k in ("id", "purpose", "concept", "caption",
+                                      "cta", "notes")) for _p in _vposts)
+          and all(_re6.match(r"^d[0-9]{2}-p[0-9]{2}$", _p["id"])
+                  for _p in _vposts)
+          and len({_p["id"] for _p in _vposts}) == len(_vposts),
+          str([_p["id"] for _p in _vposts[:3]]))
+    check("P6V the writing left the scaffold: no caption wears the old"
+          " day-number costume, every caption and call came back non-empty"
+          " and normalised, and the week's captions are as many and as"
+          " distinct as its posts — the meme bank grew to seven so even the"
+          " punchline says each line once a week",
+          all(not _re6.match(r"^Day [0-9]+ —", _p["caption"]) for _p in _vposts)
+          and all(_p["caption"] and _p["cta"] and _p["notes"] for _p in _vposts)
+          and len({_p["caption"] for _p in _vposts}) == len(_vposts),
+          str(sorted({_p["caption"][:14] for _p in _vposts})[:5])[:140])
+    check("P6V QC grew a second spine and kept its honour: text ok now"
+          " watches every post instead of one caption a day, the new"
+          " posts_total and captions_distinct ride what was actually"
+          " written, and the old rail (concepts as distinct as the days,"
+          " seven of seven) still stands — an added claim, never a traded one",
+          _vq["text_ok"] is True
+          and _vq["posts_total"] == len(_vposts)
+          and _vq["captions_distinct"] == len(_vposts)
+          and _vq["concepts_distinct"] == _vq["days"] == 7, str(_vq)[:140])
+    _vOne, _ = _stud.create(dict(_mk, days=2, types=["meme"]))
+    _vFive, _ = _stud.create(dict(_mk, days=2, types=["xpost", "meme", "promo",
+                                                      "banner", "announce"]))
+    check("P6V the desk flexes and does not force: a one-card week posts once"
+          " a day (two days, two posts) and a five-card week posts five times"
+          " a day behind the day's one idea (two days, ten posts) — posts"
+          " follow the shelf and never a template's vanity",
+          _vOne["qc"]["posts_total"] == 2 and _vOne["qc"]["days"] == 2
+          and _vFive["qc"]["posts_total"] == 10 and _vFive["qc"]["days"] == 2,
+          str((_vOne["qc"]["posts_total"], _vFive["qc"]["posts_total"])))
+    _vTwelve, _ = _stud.create(dict(_mk, days=_cfgT["daysMax"],
+                                    types=["xpost"]))
+    check("P6V the long week turns the page and does not print its own"
+          " sentence twice: when a campaign rides the shipped cap of %d days"
+          " the second lap draws other lines of the lane's pool (day eight is"
+          " not day one's copy), so the day-level concepts stay as distinct as"
+          " the days and the text rail stands honest at the cap's length"
+          % _cfgT["daysMax"],
+          _vTwelve["qc"]["concepts_distinct"] == _vTwelve["qc"]["days"]
+          == _cfgT["daysMax"] and _vTwelve["qc"]["text_ok"] is True,
+          str(_vTwelve["qc"])[:120])
+    _vE, _ = _stud.create(dict(_mk, days=3, types=["xpost", "meme"]))
+    _zE, _zpE, _ = _stud.export(_vE["id"])
+    _ze = _zip.ZipFile(_io.BytesIO(_zE))
+    _zrE = _vE["slug"] + "-" + str(_vE["id"]) + "/"
+    _znmE = set(_ze.namelist())
+    _zmnE = set(json.loads(_ze.read(_zrE + "manifest.json")))
+    _cpE = _ze.read(_zrE + "campaign-posts.csv").decode("utf-8").splitlines()
+    _ptE = _ze.read(_zrE + "copy/day-01/post-01.txt").decode("utf-8")
+    check("P6V the receipt learned the posts and stayed a receipt: the"
+          " archive reopens, the manifest names only what the archive truly"
+          " met, the posts ledger and one public paper per post ride"
+          " alongside every ready card, the ledger prints exactly one row"
+          " per post under the header an operator publishes by (three days,"
+          " two cards, six rows), and the per-post txt carries public copy"
+          " alone — the creative note lives in the day's markdown and the"
+          " ledger, never in the tweet",
+          _ze.testzip() is None
+          and {_zrE + _n for _n in ("campaign-posts.csv", "copy/day-01.md",
+                                    "copy/day-01/post-01.txt",
+                                    "copy/day-02/post-02.txt")} <= _znmE
+          and {"assets/" + _stumod._zip_entry(_vE["plan"]["days"], _a)
+               for _a in _vE["assets"] if _a["status"] == "ready"} <= _zmnE
+          and _zrE + "assets/day-01/post-01.png" in _znmE
+          and all(_m.startswith("assets/day-") for _m in _zmnE
+                  if _m.startswith("assets/"))
+          and all(_zrE + _m in _znmE for _m in _zmnE - {"manifest.json"})
+          and _cpE[0].startswith("day,post_id,kind,purpose,concept,caption,"
+                                "cta,notes,asset_files")
+          and len(_cpE) == 1 + _vE["qc"]["posts_total"]
+          and "the idea wears the art" not in _ptE
+          and _vE["plan"]["days"][0]["posts"][0]["caption"] in _ptE,
+          str((len(_znmE), len(_zmnE)))[:100])
+    _ze.close()
+    _oldS = json.loads(json.dumps(_vp))
+    for _d in _oldS["days"]:
+        for _k in ("posts", "theme", "why", "aspect"):
+            _d.pop(_k, None)
+    _sdb.conn.execute("UPDATE studio_campaigns SET plan_json=? WHERE id=?",
+                      (json.dumps(_oldS), _v2["id"]))
+    _sdb.conn.commit()
+    _vViewV = _stud.view(_v2["id"])
+    _zV, _zpV, _ = _stud.export(_v2["id"])
+    _zv = _zip.ZipFile(_io.BytesIO(_zV))
+    _zrV = _v2["slug"] + "-" + str(_v2["id"]) + "/"
+    _sfxV = {_n.split("/")[-1] for _n in _zv.namelist()}
+    _planV = json.loads(_zv.read(_zrV + "campaign-plan.json"))
+    check("P6V an old campaign is a first-season citizen and not a fossil:"
+          " strip a stored plan back to the pre-posts shape and both doors"
+          " still answer (the view rides the synthesis, the export packs"
+          " it) — the archive reopens, the reader synthesises one"
+          " post worn by the day so the per-post paper and the ledger still"
+          " print from last season's bytes, and the plan stored inside the"
+          " archive keeps its age (no posts were smuggled into storage)",
+          _vViewV is not None
+          and _vViewV["plan"]["days"][0].get("posts") is None
+          and len(_vViewV["assets"]) == 14
+          and _zv.testzip() is None
+          and {"campaign-plan.json", "brand-profile.json",
+               "campaign-calendar.csv", "campaign-posts.csv",
+               "README.md", "manifest.json", "day-01.md", "post-01.txt"
+               } <= _sfxV
+          and _planV["days"][0].get("posts") is None
+          and any(_re6.match(r"^s[0-9]+-a", _n) for _n in _sfxV),
+          str(_sfxV)[:140])
+    _zv.close()
+    _spokenOld = json.loads(json.dumps(_oldS))
+    _badPos = json.loads(json.dumps(_vp))
+    _badPos["days"][0]["posts"][0]["id"] = "d07-p01"
+    check("P6V the model's old vocabulary still passes the gate and the new"
+          " one is policed: a spoken answer without posts validates to one"
+          " synthesised post a day, the full post-shaped answer validates"
+          " whole, and a post that lies about its place (a d07 id on day"
+          " one) is refused entire — the fall to the deterministic voice"
+          " stays the design and not a patch",
+          _stumod._validate_plan(_spokenOld, 7) is not None
+          and len(_stumod._validate_plan(_spokenOld, 7)["days"][0]["posts"]) == 1
+          and _stumod._validate_plan(json.loads(json.dumps(_vp)), 7) is not None
+          and _stumod._validate_plan(_badPos, 7) is None,
+          str(_stumod._validate_plan(_spokenOld, 7))[:120])
+    _capsV = _stud.capabilities()
+    check("P6V the door names its new shape out loud: the capabilities view"
+          " still speaks the deterministic planner and the five cards it"
+          " actually keeps, the plan schema moved to"
+          " paper-studio-plan/2 on purpose — the plan genuinely changed and"
+          " the schema says so (this pin is deliberate, not drift) — and the"
+          " model's own brief now advertises the posts shape (a textual pin:"
+          " the live lane stays behind its key and the gate already reads"
+          " both vocabularies)",
+          _capsV["schema"] == "paper-studio-plan/2"
+          and _capsV["planner"] == "deterministic"
+          and len(_capsV["types"]) == 5
+          and "posts:[{id" in open(_stumod.__file__,
+                                   encoding="utf-8").read(),
+          str(_capsV["schema"]))
+    _cssV = open(os.path.join(os.path.dirname(__file__), "..", "css",
+                              "studio.css"), encoding="utf-8").read()
+    check("P6V the desk paints the campaign and the sheet keeps its vows:"
+          " the overview and the post grid ride the plan (a client-side"
+          " synthesis keeps campaigns older than the posts renderable), the"
+          " copy button's text rides the markup, a post without a finished"
+          " image is named text-only out loud, and the studio's own sheet"
+          " adds neither a shadow nor a gradient to any of it",
+          "st-ov" in _sjs and "st-post" in _sjs and 'data-copy-cap="' in _sjs
+          and "text-only" in _sjs and "padStart" in _sjs
+          and ".st-ov" in _cssV and ".st-post" in _cssV
+          and "white-space: pre-wrap" in _cssV and "box-shadow" not in _cssV
+          and "gradient" not in _cssV,
+          str([_k for _k in ("st-ov", "st-post", "data-copy-cap")
+               if _k not in _sjs])[:80])
+    _pvM = _re6.search(r"P6V copy seam begin -- \*/(.*?)\n"
+                       r"/\* -- P6V copy seam end", _sjs, _re6.DOTALL)
+    _pvSeam = _pvM.group(1) if _pvM else ""
+    _pvJs = _pvSeam + r"""
+var log9 = [];
+var mkSP9 = function (val, okF) {
+  return { then: function (a, b) { return okF ? a(val) : b(val); } };
+};
+var mkDoc9 = function (exec) {
+  var d = { body: { appendChild: function () {}, removeChild: function () {} },
+            createElement: function () {
+              return { value: "", style: {}, setAttribute: function () {},
+                       select: function () {} }; } };
+  if (exec !== "absent") {
+    d.execCommand = function () { log9.push("exec"); return exec; };
+  }
+  return d;
+};
+var runPV = function (clip, exec, script) {
+  log9 = [];
+  navigator = undefined;
+  if (clip) {
+    navigator = { clipboard: { writeText: function () {
+      if (script === "throw") { throw new Error("sync-throw"); }
+      return script; } } };
+  }
+  document = mkDoc9(exec);
+  var got = null;
+  var mode = copyText("hello week", function (m) { got = "ok:" + m; },
+                      function (m) { got = "bad:" + m; });
+  return { out: got, mode: mode, exec: log9.length > 0 };
+};
+var pv = [];
+var a1 = runPV(true, true, mkSP9("t", true));
+pv.push("s1" + (a1.out === "ok:Copied" && a1.mode === "clipboard"
+                && !a1.exec ? ":ok" : ":FAIL(" + a1.out + "," + a1.mode + ")"));
+var a2 = runPV(true, true, mkSP9("x", false));
+pv.push("s2" + (a2.out === "ok:Copied" && a2.exec
+                ? ":ok" : ":FAIL(" + a2.out + "," + a2.exec + ")"));
+var a3 = runPV(true, false, mkSP9("x", false));
+pv.push("s3" + (a3.out === "bad:Copy failed" && a3.exec
+                ? ":ok" : ":FAIL(" + a3.out + ")"));
+var a4 = runPV(false, true, null);
+pv.push("s4" + (a4.out === "ok:Copied" && a4.mode === "legacy"
+                && a4.exec ? ":ok" : ":FAIL(" + a4.out + "," + a4.mode + ")"));
+var a5 = runPV(false, "absent", null);
+pv.push("s5" + (a5.out === "bad:Copy unavailable" && a5.mode === "none"
+                && !a5.exec ? ":ok" : ":FAIL(" + a5.out + "," + a5.mode + ")"));
+var a6 = runPV(true, true, "throw");
+pv.push("s6" + (a6.out === "bad:Copy failed" && a6.mode === "none"
+                ? ":ok" : ":FAIL(" + a6.out + "," + a6.mode + ")"));
+var pvBad = pv.filter(function (x) { return x.indexOf(":ok") < 0; });
+var _p6vVerdict = pvBad.length ? "P6V-FAILS " + pv.join(" ") : "P6V-scenarios-behave";
+(typeof console !== 'undefined' && console.log)
+  ? (console.log(_p6vVerdict), _p6vVerdict) : _p6vVerdict;
+"""
+    def _p6v_twin(_clip, _res, _exec, _throw=False):
+        # a python reading of the very same lane (the P6K lesson: an absent
+        # engine is never a silent pass — the twin drives the six scenarios
+        # over the very same synchronous shams and the verdict must match)
+        _lg = []
+        def _fb():
+            if _exec == "absent":
+                return ("none", "bad:Copy unavailable")
+            _lg.append("exec")
+            return (("legacy", "ok:Copied") if _exec
+                    else ("legacy", "bad:Copy failed"))
+        if _clip and not _throw:
+            _m, _o = (("clipboard", "ok:Copied") if _res else _fb())
+            return (_o, _m, bool(_lg))
+        if _clip:
+            return ("bad:Copy failed", "none", False)
+        if _exec != "absent":
+            _m, _o = _fb()
+            return (_o, _m, bool(_lg))
+        return ("bad:Copy unavailable", "none", False)
+    _twin6 = [_p6v_twin(True, True, True), _p6v_twin(True, False, True),
+              _p6v_twin(True, False, False), _p6v_twin(False, None, True),
+              _p6v_twin(False, None, "absent"),
+              _p6v_twin(True, None, True, _throw=True)]
+    _pvExp = [("ok:Copied", "clipboard", False), ("ok:Copied", "legacy", True),
+              ("bad:Copy failed", "legacy", True), ("ok:Copied", "legacy", True),
+              ("bad:Copy unavailable", "none", False),
+              ("bad:Copy failed", "none", False)]
+    _pvEng = next((_c for _c in (("osascript", "-l", "JavaScript", "-e"),
+                                 ("node", "-e"))
+                   if __import__("shutil").which(_c[0])), None)
+    _pvOut = ""
+    if _pvM and _pvEng:
+        try:
+            _pvOut = __import__("subprocess").run(
+                list(_pvEng) + [_pvJs], capture_output=True, text=True).stdout
+        except OSError:
+            _pvOut = ""
+    check("P6V seam: the copy lane stands between its markers (clipboard"
+          " first, textarea fallback, three honest outcomes) and the six"
+          " scenarios behave — where an engine answers (osascript or node,"
+          " chosen by availability and not by platform) it drives the real"
+          " js; the python twin drives the very same six regardless: the"
+          " clipboard wins without touching the legacy lane, a reject rides"
+          " the fallback to a truthful Copied, a dead fallback says Copy"
+          " failed, the legacy lane alone says Copied, nothing at all says"
+          " Copy unavailable, and a throwing lane never cries Copied",
+          bool(_pvM) and "navigator.clipboard" in _pvSeam
+          and "execCommand" in _pvSeam and '"Copied"' in _pvSeam
+          and '"Copy failed"' in _pvSeam
+          and '"Copy unavailable"' in _pvSeam
+          and _twin6 == _pvExp
+          and ((_pvEng is None) or ("P6V-scenarios-behave" in _pvOut)),
+          (str(_pvOut)[-120:] if _pvOut else "twin")[:140])
     print("failures:", len(FAILURES))
     return len(FAILURES)
 

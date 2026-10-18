@@ -137,3 +137,45 @@
     padding: .7rem .3rem calc(.7rem + env(safe-area-inset-bottom, 0px)) }
   .studio .st-grid { padding-bottom: 84px }
 }
+
+/* P6V — the writing desk: the campaign's word before its art */
+.studio .st-ov { display: grid; gap: .18rem; border-left: 2px solid var(--green);
+  padding-left: .9rem }
+.studio .st-ov h3 { margin: 0 0 .15rem; font-family: var(--serif);
+  font-weight: 800; font-size: var(--fs-h4, 1.05rem); color: var(--cream) }
+.studio .st-ov__row { display: flex; gap: .5rem; align-items: baseline;
+  flex-wrap: wrap }
+.studio .st-ov__row i { font-style: normal; font-family: var(--mono);
+  font-size: var(--fs-caption); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--green); min-width: 10ch }
+.studio .st-ov__row span { color: var(--cream-dim); line-height: 1.45;
+  max-width: 74ch }
+.studio .st-day__why { color: var(--cream-faint); font-size: .88rem;
+  line-height: 1.45; margin: 0 }
+.studio .st-posts { display: grid; gap: .55rem; margin-top: .4rem;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)) }
+.studio .st-post { display: grid; gap: .3rem; border: 1px solid var(--line);
+  border-radius: var(--r-card); padding: .8rem .9rem; min-width: 0;
+  align-content: start }
+.studio .st-post__top { display: flex; gap: .7rem; align-items: baseline;
+  flex-wrap: wrap; font-family: var(--mono); font-size: var(--fs-kicker);
+  letter-spacing: .12em; text-transform: uppercase; color: var(--cream-faint) }
+.studio .st-post__top b { color: var(--green); font-weight: 500 }
+.studio .st-post__cap { margin: 0; color: var(--cream); line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: break-word }
+.studio .st-post__row { display: flex; gap: .6rem; align-items: center;
+  justify-content: space-between; flex-wrap: wrap }
+.studio .st-post__media { display: flex; gap: .6rem; align-items: center;
+  flex-wrap: wrap }
+.studio .st-post__media img { width: 64px; height: auto; background: var(--ink);
+  border: 1px solid var(--line) }
+.studio .st-post__meta { font-family: var(--mono); font-size: var(--fs-caption);
+  color: var(--cream-faint) }
+.studio .st-post__idea { margin: 0; color: var(--cream-faint); font-size: .82rem;
+  line-height: 1.45 }
+.studio .st-copy[data-st="ok"] { color: var(--green-ink);
+  border-color: var(--green-ink) }
+.studio .st-copy[data-st="bad"] { color: var(--tan); border-color: var(--tan) }
+@media (max-width: 980px) {
+  .studio .st-posts { grid-template-columns: 1fr }
+}

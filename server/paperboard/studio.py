@@ -49,31 +49,47 @@ DAY_KINDS = ("xpost", "meme", "promo", "banner", "announce")
 # a pool so two campaigns (or one regeneration) never print the same words
 # twice in a row. PAPERBOARD-flavoured, and verifiable claims only.
 WEEK = (
-    dict(purpose="the hook", pool=(
+    dict(purpose="the hook", theme="Open the issue",
+         why="the board needs a reason to look today: day one lays the claim",
+         pool=(
         "a new week of paper opens: the board is blank and the ink is wet",
         "the fold that starts the run — PAPERBOARD opens its doors",
         "issue zero-one: post paper, earn points, climb the front page")),
-    dict(purpose="the joke", pool=(
+    dict(purpose="the joke", theme="Show the joke",
+         why="paper is fun before it is a product: the laugh is the door in",
+         pool=(
         "a mascot who has seen the chart and kept the receipt",
         "diamond hands, paper wallet",
         "posting through the pain and calling it strategy")),
-    dict(purpose="the feature", pool=(
+    dict(purpose="the feature", theme="Read the feature",
+         why="the fun needs mechanics behind it, or it is only a poster",
+         pool=(
         "paste one post: the server reads it, gates it, scores it",
         "points that print on the front page — no vibes, a ledger",
         "no wallet ceremony: email in, points ride the account")),
-    dict(purpose="the ask", pool=(
+    dict(purpose="the ask", theme="Make the ask",
+         why="a reader who laughs can still walk past; the ask is where "
+             "participants start",
+         pool=(
         "the wall is open: hang your paper on it",
         "one post, one seat on the board",
         "submit something worth framing this week")),
-    dict(purpose="the game", pool=(
+    dict(purpose="the game", theme="Play the game",
+         why="points only count when somebody keeps score — the arcade is "
+             "the week's engine",
+         pool=(
         "the week is the server's naming — a best score, not every score",
         "the boards stay empty until a hand fills them",
         "a lesser score simply defers; the week keeps its best")),
-    dict(purpose="the receipt", pool=(
+    dict(purpose="the receipt", theme="Audit the week",
+         why="a board that shows its numbers is the one the timeline believes",
+         pool=(
         "verified posts, counted likes, a frozen cut for the batch",
         "the ledger remembers, politely",
         "numbers the provider reported, not numbers we liked")),
-    dict(purpose="the send-off", pool=(
+    dict(purpose="the send-off", theme="Close and send off",
+         why="a recap gives the week a shape and the next issue a door",
+         pool=(
         "fold the week, print the recap, keep the receipts",
         "the front page closes and the next issue already opens",
         "one week of paper: what the board says, it says")),
@@ -81,7 +97,15 @@ WEEK = (
 CTAS = ("Follow @Papersol6", "Post PAPER. Earn points.", "Join PAPERBOARD.",
         "Check the leaderboard.", "Submit your post.")
 MEME_PUNCH = ("no rug, only paper", "the byline holds", "receipts, not feelings",
-              "one post, one point", "the board does not blink")
+              "one post, one point", "the board does not blink",
+              "the fold holds", "ink first, feelings later")
+
+# why a post exists once the day is set: every card kind earns its place by
+# a job on the timeline — the post's purpose is the card's job, not the day's
+# place in the arc.
+XROLE = {"xpost": "the day on the timeline", "meme": "the day's punchline",
+         "promo": "the day's invite", "banner": "the day's marquee",
+         "announce": "the day's call to the community"}
 
 # who wears which pose — the pose files are the real cut-outs on disk
 # (server/tools/pose_alpha.py made their alpha); never paste one pose for
@@ -528,7 +552,7 @@ def analyze_reference(raw):
 
 
 # ————————————————————————————————— the plan ———————————————————————————————————
-PLAN_SCHEMA = "paper-studio-plan/1"
+PLAN_SCHEMA = "paper-studio-plan/2"
 
 
 def _clean_txt(v, cap):
@@ -566,6 +590,47 @@ def _validate_plan(plan, days_n):
             if val is None:
                 return None
             row[key] = val
+        for key, lim in (("theme", 80), ("why", 240)):
+            if d.get(key) is not None:
+                val = _clean_txt(d[key], lim)
+                if val is None:
+                    return None
+                row[key] = val
+        raw = d.get("posts")
+        if raw is None:                       # a spoken plan speaks the old
+            row["posts"] = [dict(             # shape: one post, worn by the
+                id="d%02d-p01" % n, purpose=row["purpose"],
+                concept=row["concept"], caption=row["caption"],
+                cta=row["cta"], notes="")]    # day itself
+        else:
+            if not isinstance(raw, list) or not raw:
+                return None
+            posts = []
+            for p, one in enumerate(raw, 1):
+                if not isinstance(one, dict):
+                    return None
+                if one.get("id") != "d%02d-p%02d" % (n, p):
+                    return None               # ids ride position, never fancy
+                post = {"id": one["id"]}
+                for key2, lim2 in (("purpose", 40), ("concept", 160),
+                                   ("caption", 280), ("cta", 80)):
+                    val = _clean_txt(one.get(key2), lim2)
+                    if val is None:
+                        return None
+                    post[key2] = val
+                note = one.get("notes") or ""
+                val = _clean_txt(note, 160) if note else ""
+                if val is None:
+                    return None
+                post["notes"] = val
+                if one.get("kind") in DAY_KINDS:
+                    post["kind"] = one["kind"]  # media association is optional
+                posts.append(post)
+            head = posts[0]
+            if (head["caption"], head["cta"], head["concept"]) != (
+                    row["caption"], row["cta"], row["concept"]):
+                return None          # the lead post IS the day's public copy
+            row["posts"] = posts
         out.append(row)
     concepts = [d["concept"] for d in out]
     if len(set(concepts)) != len(concepts):
@@ -594,9 +659,13 @@ class LlmPlanner:
             return None
         system = ("Reply with JSON only, no prose, shaped exactly like: "
                   "{objective, audience, core_message, days:[{day, purpose, "
-                  "concept, caption, cta, visual}]}. %d days, day numbers "
-                  "1..%d, one distinct purpose per day, no concept repeated."
-                  % (days_n, days_n))
+                  "concept, caption, cta, visual, posts:[{id, purpose, "
+                  "concept, caption, cta}]}]}. %d days, day numbers 1..%d, "
+                  "one distinct purpose per day, no concept repeated; posts "
+                  "may ride empty or absent (the day then speaks one post of "
+                  "its own), their ids ride position (d01-p01, d01-p02), and "
+                  "the day's own concept/caption/cta must repeat the first "
+                  "post's." % (days_n, days_n))
         user = json.dumps(dict(brief, days=days_n), ensure_ascii=False)
         body = json.dumps({"model": self.model, "temperature": 0.4,
                            "messages": [{"role": "system", "content": system},
@@ -623,28 +692,67 @@ def _strip_fences(content):
     return s.strip()
 
 
-def deterministic_plan(name, goals, days_n):
+def deterministic_plan(name, goals, days_n, specs=None):
     """the reliable voice: a distinct purpose each day, a distinct concept
-    per day, and copy that claims nothing the board cannot verify."""
+    per day, and a post for every card the day will actually wear. copy is
+    written per kind (the meme post carries the punchline, the promo post
+    carries the invite), so the week reads as one campaign and not as seven
+    posters, and it claims nothing the board can not verify."""
     week_len = len(WEEK)
     days = []
     for n in range(1, days_n + 1):
         lane = WEEK[(n - 1) % week_len]
         lap = (n - 1) // week_len
-        concept = lane["pool"][(n - 1 + lap * 2) % len(lane["pool"])]
+        # a lap turns the lane's page: day eight must not print day one's
+        # sentence (the pool's lines are three, so +lap always shifts).
+        concept = lane["pool"][(n - 1 + lap) % len(lane["pool"])]
+        take = "" if lap == 0 else ", take %d" % (lap + 1)
+        posts = []
+        for j, kind in enumerate((specs or {}).get(n) or []):
+            if kind == "xpost":
+                cap = concept
+            elif kind == "meme":
+                cap = MEME_PUNCH[(n - 1 + j) % len(MEME_PUNCH)]
+            elif kind == "promo":
+                cap = "%s — the invite stands" % concept
+            elif kind == "banner":
+                cap = "%s — read it big" % concept
+            else:
+                cap = "%s — the community is invited" % concept
+            posts.append({
+                "id": "d%02d-p%02d" % (n, j + 1), "kind": kind,
+                "purpose": XROLE.get(kind, "the day's post"),
+                "concept": concept, "caption": cap,
+                "cta": CTAS[(n - 1 + j) % len(CTAS)],
+                "notes": "for the %s card: the idea wears the art,"
+                         " the copy stands on its own"
+                         % ASSET_TYPES[kind]["use"].lower()})
+        lead = posts[0] if posts else None
         days.append({"day": n, "platform": "X",
                      "purpose": (lane["purpose"] if lap == 0
                                  else "%s, take %d" % (lane["purpose"], lap + 1)),
+                     "theme": "%s%s" % (lane["theme"], take),
+                     "why": lane["why"],
                      "concept": concept,
-                     "caption": "Day %d — %s" % (n, concept),
-                     "cta": CTAS[(n - 1) % len(CTAS)],
+                     "caption": (lead or {}).get("caption") or concept,
+                     "cta": (lead or {}).get("cta") or CTAS[(n - 1) % len(CTAS)],
                      "visual": "%s wears the day (the pose follows the purpose)"
-                               % lane["purpose"]})
+                               % lane["purpose"],
+                     "posts": posts})
     objective = _clean_txt(goals, 140) if goals else None
+    arc = ", ".join(d["theme"] for d in days[:week_len])
+    if days_n > week_len:
+        arc += " — then the laps run the same road"
     return {"objective": objective or ("%s needs the timeline posting, "
                                         "playing, and coming back" % name)[:140],
             "audience": "the X timeline and the PAPERBOARD board",
             "core_message": "%s — post paper, earn points, climb the front page" % name,
+            "strategy": ("one idea a day, and a card that wears the idea:"
+                         " the week runs a purpose each day, and every post"
+                         " reads on its own"),
+            "outcome": "%d days that read as one campaign, not %d separate"
+                       " posters — and the board noticing" % (days_n, days_n),
+            "arc": arc[:300],
             "days": days}
 
 
@@ -655,6 +763,34 @@ def _asset_specs(days_n, types, max_assets):
     if days_n * len(want) <= max_assets:
         return {d: list(want) for d in range(1, days_n + 1)}
     return {d: [want[(d - 1) % len(want)]] for d in range(1, days_n + 1)}
+
+
+def _day_posts(drow):
+    """read a day's posts whichever shape the campaign was stored in: new
+    days carry their own; an old day becomes one post worn by the day, so
+    first-season campaigns still render, export, and speak without a edit."""
+    posts = drow.get("posts")
+    if posts:
+        return posts
+    return [dict(id="d%02d-p01" % drow["day"], purpose=drow.get("purpose") or "",
+                 concept=drow.get("concept") or "",
+                 caption=drow.get("caption") or "",
+                 cta=drow.get("cta") or "", notes="")]
+
+
+def _zip_entry(plan_days, row):
+    """the ZIP's human face for a ready card: day-NN/post-MM.ext, the post
+    index read from the plan's own posts (a hero rides day-NN/hero.ext). A
+    campaign older than the posts has no kind on its synthesised post to
+    answer by, so it rides on under its ledger name — the honest fallback."""
+    ext = row["file"].rpartition(".")[2]
+    if row["kind"] == "ai_hero":
+        return "day-%02d/hero.%s" % (row["day"], ext)
+    if 0 < row["day"] <= len(plan_days):
+        for p, post in enumerate(_day_posts(plan_days[row["day"] - 1]), 1):
+            if post.get("kind") == row["kind"]:
+                return "day-%02d/post-%02d.%s" % (row["day"], p, ext)
+    return row["file"]
 
 
 # ————————————————————————————————— the desk ———————————————————————————————————
@@ -798,6 +934,7 @@ class Studio:
             brand = analyze_reference(ref_raw)
         except StudioError as e:
             return None, e.reason
+        specs = _asset_specs(days, types, self.max_assets)
         engine, plan = "deterministic", None
         if self.llm.configured:
             spoken = self.llm.plan({"project": name, "brief": brief,
@@ -810,7 +947,7 @@ class Studio:
             elif spoken == "unreachable":
                 engine = "deterministic (model unreachable)"
         if plan is None:
-            plan = deterministic_plan(name, goals, days)
+            plan = deterministic_plan(name, goals, days, specs)
         t = time.time()
         cur = self.db.conn.execute(
             "INSERT INTO studio_campaigns(name,slug,brief_json,brand_json,"
@@ -834,7 +971,6 @@ class Studio:
             except StudioError:
                 pass                       # a reference that cannot land is
                                            # not a lost campaign
-        specs = _asset_specs(days, types, self.max_assets)
         for n in range(1, days + 1):      # the plan grows its own schedule
             plan["days"][n - 1]["aspect"] = \
                 ASSET_TYPES[specs[n][0]]["aspect"] if specs.get(n) else "16:9"
@@ -1070,11 +1206,14 @@ class Studio:
             else:
                 failed += 1
         concepts = [d["concept"] for d in plan["days"]]
-        text_ok = all(_clean_txt(d.get("caption"), 400) and
-                      _clean_txt(d.get("cta"), 100) for d in plan["days"])
+        posts = [p for d in plan["days"] for p in _day_posts(d)]
+        text_ok = all(_clean_txt(p.get("caption"), 400) and
+                       _clean_txt(p.get("cta"), 100) for p in posts)
         return {"assets_total": total, "assets_ready": ready,
                 "assets_failed": failed, "sizes_verified": dim_ok,
                 "days": len(plan["days"]),
+                "posts_total": len(posts),
+                "captions_distinct": len({p.get("caption") for p in posts}),
                 "concepts_distinct": len(set(concepts)),
                 "text_ok": bool(text_ok),
                 "notes": ([hero_note] if hero_note else [])
@@ -1147,7 +1286,8 @@ class Studio:
         new_var = a["variant"] + 1
         drow["concept"] = lane["pool"][(a["day"] - 1 + 3 * new_var)
                                        % len(lane["pool"])]
-        drow["caption"] = "Day %d — %s" % (a["day"], drow["concept"])
+        drow["caption"] = drow["concept"]   # a reroll prints the idea plain,
+                                            # no day-number scaffold
         spec = ASSET_TYPES[a["kind"]]
         png, why, texts = self._render(c["name"], a["day"], a["kind"], drow,
                                        brand, new_var)
@@ -1217,10 +1357,33 @@ class Studio:
                     _csv(d["caption"]), _csv(d["cta"]), d.get("platform") or "X",
                     _csv(d.get("aspect") or "16:9"), _csv(files)))
             put("campaign-calendar.csv", ("\r\n".join(lines) + "\r\n").encode())
+            plines = ["day,post_id,kind,purpose,concept,caption,cta,notes,"
+                      "asset_files"]
             for d in plan["days"]:
-                put("copy/day-%02d.md" % d["day"],
-                    ("# day %d — %s\n\n%s\n\n%s\n"
-                     % (d["day"], d["purpose"], d["caption"], d["cta"])).encode())
+                body = ("# day %d — %s\n\n%s\n\n%s\n"
+                        % (d["day"], d["purpose"], d["caption"], d["cta"]))
+                for p, post in enumerate(_day_posts(d), 1):
+                    files = ";".join(sorted({
+                        r["file"] for r in rows if r["file"]
+                        and r["day"] == d["day"] and post.get("kind")
+                        and r["kind"] == post["kind"]}))
+                    body += ("\n## %s · %s\n\n%s\n\n%s\n%s"
+                             % (post.get("id") or "post",
+                                post.get("purpose") or "the day's post",
+                                post["caption"], post["cta"],
+                                ("\n(note: %s)\n" % post["notes"])
+                                if post.get("notes") else ""))
+                    put("copy/day-%02d/post-%02d.txt" % (d["day"], p),
+                        ("%s\n\n%s\n"
+                         % (post["caption"], post["cta"])).encode())
+                    plines.append("%d,%s,%s,%s,%s,%s,%s,%s,%s" % (
+                        d["day"], _csv(post.get("id") or ""),
+                        post.get("kind") or "",
+                        _csv(post.get("purpose") or ""), _csv(post["concept"]),
+                        _csv(post["caption"]), _csv(post["cta"]),
+                        _csv(post.get("notes") or ""), _csv(files)))
+                put("copy/day-%02d.md" % d["day"], body.encode())
+            put("campaign-posts.csv", ("\r\n".join(plines) + "\r\n").encode())
             for r in rows:
                 if not r["file"] or r["status"] != "ready":
                     continue
@@ -1229,9 +1392,10 @@ class Studio:
                         raw = fh.read()
                 except OSError:
                     continue           # a file that vanished is not in, not listed
-                zf.writestr(zipfile.ZipInfo("%s/assets/%s" % (root, r["file"])),
+                entry = _zip_entry(plan["days"], r)
+                zf.writestr(zipfile.ZipInfo("%s/assets/%s" % (root, entry)),
                             raw)
-                manifest.append("assets/" + r["file"])
+                manifest.append("assets/" + entry)
             put("README.md", ("# %s — a paper studio campaign\n\n%d days, %d"
                               " named files in the archive, one plan behind"
                               " them.\n"

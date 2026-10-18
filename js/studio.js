@@ -28,6 +28,38 @@ const ERRORS = {
   bad_id: "the desk could not read that number",
 };
 
+/* — the copy lane: P6V copy seam begin -- */
+function copyText(text, onOK, onFail) {
+  const body = String(text === null || text === undefined ? "" : text);
+  const fallback = () => {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = body;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.top = "-99em";
+      document.body.appendChild(ta);
+      ta.select();
+      const cut = document.execCommand && document.execCommand("copy");
+      document.body.removeChild(ta);
+      if (cut) { onOK("Copied"); return "legacy"; }
+      onFail("Copy failed");
+    } catch (e) { onFail("Copy failed"); }
+    return "legacy";
+  };
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard
+        && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(body).then(() => onOK("Copied"), fallback);
+      return "clipboard";
+    }
+    if (typeof document !== "undefined" && document.execCommand) return fallback();
+    onFail("Copy unavailable");
+  } catch (e) { onFail("Copy failed"); }
+  return "none";
+}
+/* -- P6V copy seam end — the battery may drive the lane between the markers */
+
 async function get(path) {
   const r = await fetch(path, { credentials: "same-origin" });
   const j = await r.json().catch(() => ({}));
@@ -103,14 +135,64 @@ function renderCampaign(c) {
   el.stage.textContent = "step five · review";
   const plan = c.plan || {};
   const qc = c.qc || {};
-  const days = (plan.days || []).map((d) => `
+  const kindInfo = {};
+  ((state.caps && state.caps.types) || []).forEach((t) => { kindInfo[t.id] = t; });
+  const byDay = {};
+  (c.assets || []).forEach((a) => { (byDay[a.day] = byDay[a.day] || []).push(a); });
+  const claimed = {};
+  const postsOf = (d) => (d.posts && d.posts.length ? d.posts : [{
+    id: "d" + String(d.day).padStart(2, "0") + "-p01", purpose: d.purpose,
+    concept: d.concept, caption: d.caption, cta: d.cta, notes: "",
+  }]);
+  const mediaOf = (p, day) => {
+    const pool = byDay[day] || [];
+    const a = p.kind ? pool.find((x) => x.kind === p.kind)
+                     : pool.find((x) => !claimed[x.id]);
+    if (!a) return `<span class="st-chip">text-only</span>`;
+    claimed[a.id] = 1;
+    if (a.status !== "ready" || !a.href)
+      return `<span class="st-chip">image ${esc(a.status)}</span>`
+        + (a.note ? ` <span class="st-card__note">${esc(a.note)}</span>` : "");
+    return `<div class="st-post__media">
+      <img src="${esc(a.href)}" alt="${esc(`${a.use} card for day ${day}`)}" loading="lazy">
+      <span class="st-post__meta">${a.width && a.height ? esc(`${a.width}×${a.height}`) : "—"} · PNG</span>
+      <a class="btn btn--ghost" href="${esc(a.href)}" download>get image</a>
+    </div>`;
+  };
+  const ovRow = (label, val) => (val
+    ? `<div class="st-ov__row"><i>${esc(label)}</i><span>${esc(val)}</span></div>` : "");
+  const overview = `
+    <div class="st-ov">
+      <h3>${esc(c.name || "campaign")} · ${esc(String(qc.days || (plan.days || []).length))} days</h3>
+      ${ovRow("objective", plan.objective)}${ovRow("audience", plan.audience)}
+      ${ovRow("core message", plan.core_message)}${ovRow("strategy", plan.strategy)}
+      ${ovRow("outcome", plan.outcome)}${ovRow("the run", plan.arc)}
+    </div>`;
+  const days = (plan.days || []).map((d) => {
+    const posts = postsOf(d).map((p) => `
+      <article class="st-post">
+        <div class="st-post__top"><b>${esc(String(p.id || ""))}</b>
+          <span>${esc(p.purpose || "")}</span>
+          ${p.kind && kindInfo[p.kind] ? `<span>${esc(kindInfo[p.kind].use)} · ${esc(kindInfo[p.kind].aspect)}</span>` : ""}</div>
+        <p class="st-post__cap">${esc(p.caption || "")}</p>
+        <div class="st-post__row">
+          <span class="st-day__cta">${esc(p.cta || "")}</span>
+          <button class="btn btn--pill st-copy" type="button"
+            data-copy-cap="${esc(p.caption || "")}" data-copy-cta="${esc(p.cta || "")}">copy</button>
+        </div>
+        ${mediaOf(p, d.day)}
+        <p class="st-post__idea">the idea · ${esc(p.concept || d.concept || "")}${p.notes ? ` — note: ${esc(p.notes)}` : ""}</p>
+      </article>`).join("");
+    return `
     <div class="st-day">
       <div class="st-day__top"><b>day ${esc(String(d.day))}</b>
-        <span>${esc(d.purpose)}</span><span>${esc(d.platform || "X")}</span>
+        <b>${esc(d.theme || d.purpose || "")}</b>
+        <span>${esc(d.purpose || "")}</span><span>${esc(d.platform || "X")}</span>
         <span>${esc(d.aspect || "")}</span></div>
+      ${d.why ? `<p class="st-day__why">${esc(d.why)}</p>` : ""}
       <div class="st-day__concept">${esc(d.concept)}</div>
-      <div class="st-day__cap">${esc(d.caption)} <span class="st-day__cta">${esc(d.cta)}</span></div>
-    </div>`).join("");
+      <div class="st-posts">${posts}</div>
+    </div>`; }).join("");
 
   const roles = (c.brand && c.brand.roles) || {};
   const swatch = (name) => roles[name]
@@ -142,7 +224,7 @@ function renderCampaign(c) {
       <div class="panel__head"><h2>the plan · ${esc(String(qc.days || (plan.days || []).length))} days</h2>
         <span class="st-stage">${esc(c.engine)}</span></div>
       <div class="panel__body">
-        <p class="st-note">${esc(plan.objective || "")} — ${esc(plan.core_message || "")}</p>
+        ${overview}
         <div class="st-days">${days}</div>
       </div>
     </section>
@@ -223,6 +305,14 @@ async function runBrief(ev) {
 el.form.addEventListener("submit", runBrief);
 el.out.addEventListener("click", (ev) => {
   const btn = ev.target.closest?.("[data-regen]");
-  if (btn) reroll(btn.dataset.regen, btn);
+  if (btn) { reroll(btn.dataset.regen, btn); return; }
+  const cp = ev.target.closest?.("[data-copy-cap]");
+  if (!cp) return;
+  const txt = (cp.dataset.copyCap || "")
+    + (cp.dataset.copyCta ? "\n\n" + cp.dataset.copyCta : "");
+  const prev = cp.textContent;
+  copyText(txt, (m) => { cp.textContent = m; cp.dataset.st = "ok"; },
+               (m) => { cp.textContent = m; cp.dataset.st = "bad"; });
+  setTimeout(() => { cp.textContent = prev; delete cp.dataset.st; }, 1500);
 });
 boot();
