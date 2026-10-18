@@ -788,21 +788,122 @@ var p2 = postJoinWithRetry({ email: 'x' }, post7, function (f) { return f(); });
 res.push('s9-double-click-dedupes'
          + ((calls7 === 1 && p1 === p2) ? ':ok' : ':FAIL(calls=' + calls7 + ')'));
 var bad6 = res.filter(function (x) { return x.indexOf(':ok') < 0; });
-bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
+var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-behave';
+(typeof console !== 'undefined' && console.log)
+  ? (console.log(_p6kVerdict), _p6kVerdict) : _p6kVerdict;
 """
-    _o6 = _sp.run(["osascript", "-l", "JavaScript", "-e", _js],
-                  capture_output=True, text=True)
-    _t6 = (_o6.stdout or "") + (_o6.stderr or "")
-    check("P6K behaviors: the seam, driven under JXA on synchronous shams,"
-          " retries the proxy-page class exactly once (530-then-success and"
+    # the engine is chosen by AVAILABILITY, never by platform assumption:
+    # osascript (the JXA this harness was born on), then node — and where
+    # neither exists, a bare Linux runner, the PYTHON TWIN below drives the
+    # very same nine scenarios over the very same synchronous shams. an absent
+    # engine is never a silent pass: the twin's verdict must match, and the
+    # textual pins that follow (markers, predicate, arity, pause) guard the js
+    # shape itself on every platform, so a mutated seam still cannot sail.
+    _shu6 = __import__("shutil")
+    _p6keng = next((list(_c) for _c in (("osascript", "-l", "JavaScript", "-e"),
+                                        ("node", "-e"))
+                    if _shu6.which(_c[0])), None)
+    class _P6KSham6:                     # a python mirror of mkSP, catch/then
+        def __init__(self, val, ok):
+            self.val, self.ok = val, bool(ok)
+        def catch(self, h):
+            return self if self.ok else h(self.val)
+        def then(self, a, b):
+            return a(self.val) if self.ok else b(self.val)
+    class _P6KThrow6(Exception):
+        pass
+    def _p6k_transient6(e):
+        return (not (isinstance(e, dict) and isinstance(e.get("payload"), dict)
+                     and e["payload"].get("error"))) \
+               and (e.get("status") is None or e["status"] >= 500)
+    def _p6k_post6(st, shams):
+        st["calls"] += 1
+        return shams.pop(0)
+    def _p6k_seam6(st, shams):            # a line-for-line python reading of
+        if st["inflight"] is not None:   # the js above, over the same shams
+            return st["inflight"]
+        first = _p6k_post6(st, shams)
+        if first.ok:
+            done = first.val
+        else:
+            e = first.val
+            if not _p6k_transient6(e):
+                raise _P6KThrow6(e)
+            again = _p6k_post6(st, shams)      # wake is supplied: the one try
+            if again.ok:
+                done = again.val
+            else:
+                st["inflight"] = None          # the js clears in the reject arm
+                raise _P6KThrow6(again.val)
+        st["inflight"] = done                  # the js sets it after then ran
+        return done
+    def _p6k_go6(name, shams, want_calls, want_throw, want_status):
+        st = {"calls": 0, "inflight": None}
+        threw = None
+        try:
+            _p6k_seam6(st, shams)
+        except _P6KThrow6 as t:
+            threw = t.args[0]
+        good = st["calls"] == want_calls and (
+            (want_throw and threw is not None and (
+                (want_status == "~" and threw.get("status") is None)
+                or (want_status != "~" and threw.get("status") == want_status)))
+            or (not want_throw and threw is None))
+        return name + (":ok" if good else ":FAIL(calls=%d)" % st["calls"])
+    def _p6k_twin6():
+        E, scr = dict, []
+        go6 = _p6k_go6
+        scr.append(go6("s1-530-then-success",
+                       [_P6KSham6(E(status=530), False),
+                        _P6KSham6(E(sent=True), True)], 2, False, None))
+        scr.append(go6("s2-502-then-success",
+                       [_P6KSham6(E(status=502), False),
+                        _P6KSham6(E(sent=True), True)], 2, False, None))
+        scr.append(go6("s3-two-transients-stop-at-two",
+                       [_P6KSham6(E(status=530), False),
+                        _P6KSham6(E(status=503), False)], 2, True, 503))
+        scr.append(go6("s4-validation-never-retried",
+                       [_P6KSham6(E(status=422, payload={"error":
+                                        "invalid_email"}), False)], 1, True, 422))
+        scr.append(go6("s5-pace-never-retried",
+                       [_P6KSham6(E(status=429, payload={"error":
+                                        "magic_rate_limited"}), False)], 1, True, 429))
+        scr.append(go6("s6-no-status-takes-one-retry",
+                       [_P6KSham6(E(payload={}), False),
+                        _P6KSham6(E(sent=True), True)], 2, False, None))
+        scr.append(go6("s7-two-no-status-stop-at-two",
+                       [_P6KSham6(E(payload={}), False),
+                        _P6KSham6(E(payload={}), False)], 2, True, "~"))
+        scr.append(go6("s8-bare-4xx-never-retried",
+                       [_P6KSham6(E(status=404), False)], 1, True, 404))
+        st9, s9 = {"calls": 0, "inflight": None}, [_P6KSham6(E(sent=True), True)]
+        p1 = _p6k_seam6(st9, s9)
+        p2 = _p6k_seam6(st9, s9)
+        scr.append("s9-double-click-dedupes"
+                    + (":ok" if (st9["calls"] == 1 and p1 is p2)
+                       else ":FAIL(calls=%d)" % st9["calls"]))
+        bad = [x for x in scr if ":ok" not in x]
+        return ("P6K-FAILS " + " ".join(scr)) if bad else "P6K-scenarios-behave"
+    if _p6keng is None:
+        print("  note  P6K scenarios: no js engine on this box — the python"
+              " twin drives the matrix, textual pins hold the js shape")
+        _t6 = _p6k_twin6()
+        _p6k_ok = (_t6 == "P6K-scenarios-behave")
+    else:
+        _o6 = _sp.run(_p6keng + [_js], capture_output=True, text=True)
+        _t6 = (_o6.stdout or "") + (_o6.stderr or "")
+        _p6k_ok = (_o6.returncode == 0 and "P6K" in _t6 and "FAIL" not in _t6)
+    check("P6K behaviors: the seam, driven on synchronous shams under jxa or"
+          " node where either is present, or under the python twin where"
+          " neither is, retries the proxy-page class exactly once"
+          " (530-then-success and"
           " 502-then-success each take two turns; two transients stop at two and"
           " surface the second failure), while validation (422), pace (429),"
           " and a bare 4xx take exactly one turn, and the no-status reject —"
           " the p6l class — takes the one bounded retry and stops at two when"
           " both turns are rejected; a double click during an in-flight join"
           " dedupes into one POST",
-          _o6.returncode == 0 and "P6K" in _t6 and "FAIL" not in _t6,
-          _t6.strip()[:120])
+          _p6k_ok, _t6.strip()[:120])
     check("P6K class: the predicate's written shape is 'no payload error, and"
           " either no status at all or a status at 500 or above' — JSON"
           " refusals, paces, and the app's keyed 5xx are structurally excluded"
