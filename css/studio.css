@@ -9,6 +9,9 @@
 .studio .st-title { font-family: var(--serif); font-weight: 800;
   font-size: var(--fs-h2); line-height: 1.05; margin: .35rem 0 .5rem }
 .studio .st-sub { color: var(--cream-dim); max-width: 62ch; margin: 0 }
+.studio .st-paused { color: var(--gold); font-family: var(--mono);
+  font-size: var(--fs-caption); letter-spacing: .1em; text-transform: uppercase;
+  margin: var(--sp-2) 0 0 }
 
 .studio .st-cap { display: flex; flex-wrap: wrap; gap: .5rem .9rem;
   margin-top: var(--sp-2) }

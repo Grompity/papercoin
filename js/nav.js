@@ -1,12 +1,13 @@
 /* nav.js — the broadsheet's index, and the whole router.
    the page is not one endless crawl any more: main.js folds the spread into
-   six views (the fold helper), and this file decides which one is open.
+   seven views (the fold helper), and this file decides which one is open.
+   the run print rode in with the first game (P6Y); the index followed.
    the device is the hash alone — "#artboard" deep-links, back and forward
    ride the browser, no dependency is bought. an unknown mark lands on the
    front page rather than an error page: a broadsheet has no 404, only the
    front page. */
 
-const VIEWS = ["home", "standings", "artboard", "worldmap", "arcade", "tokens"];
+const VIEWS = ["home", "standings", "artboard", "worldmap", "arcade", "run", "tokens"];
 
 export function startNav() {
   const views = [...document.querySelectorAll(".view")];

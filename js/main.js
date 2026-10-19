@@ -7,17 +7,19 @@ import { FrontPage } from "./components/frontpage.js";
 import { Artboard } from "./components/artboard.js";
 import { WorldMap } from "./components/worldmap.js";
 import { Arcade } from "./components/arcade.js";
+import { Run } from "./components/run.js";
 import { HomeDash } from "./components/homedash.js";
 import { Scoring } from "./components/scoring.js";
 import { TheBill } from "./components/dollarbill.js";
 import { BuySection } from "./components/buy.js";
 import { Footer } from "./components/footer.js";
-import { startPaperboard, startArtboard, startWorldMap, startArcade, startHomeDash } from "./paperboard.js";
+import { startPaperboard, startArtboard, startWorldMap, startArcade,
+         startRun, startHomeDash } from "./paperboard.js";
 import { startNav } from "./nav.js";
 
 const root = document.getElementById("root");
 
-/* the spread folds into six views (js/nav.js keeps the index). the sections
+/* the spread folds into seven views (js/nav.js keeps the index). the sections
    are untouched inside their folds — the redesign is the shelf, not the
    print. one deliberate rest stands at the end: the tokens fold keeps the
    bill's cream spread last, where a broadsheet's back page always breathes. */
@@ -31,6 +33,7 @@ root.innerHTML = [
   fold("artboard", Artboard()),
   fold("worldmap", WorldMap()),
   fold("arcade", Arcade()),
+  fold("run", Run()),
   fold("tokens", Scoring(), TheBill(), BuySection()),
   Footer(),
 ].join("\n");
@@ -137,5 +140,6 @@ startPaperboard();
 startArtboard();
 startWorldMap();
 startArcade();
+startRun();
 startHomeDash();
 startNav();

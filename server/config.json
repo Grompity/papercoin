@@ -164,6 +164,7 @@
       "magicSendPerTenMinutes": 6,
       "submitPerTenMinutes": 8,
       "xverifyPerTenMinutes": 10,
+      "walletPerTenMinutes": 8,
       "artworksPerMinute": 30,
       "uploadPerTenMinutes": 8,
       "votePerTenMinutes": 12,

@@ -325,7 +325,9 @@ class Service:
         authenticated (this gate — an attacker holding a warm session still
         has to click a new magic link to move the money address). The new
         address becomes reward-eligible only after the cooldown, so a
-        temporary account thief cannot instantly reroute a reward."""
+        temporary account thief cannot instantly reroute a reward. An unchanged
+        submission answers wallet_unchanged — the desk refuses to call a no-op
+        a change."""
         t = now() if at is None else float(at)
         if not fresh:
             return None, "fresh_auth_required"
@@ -333,7 +335,7 @@ class Service:
         if addr is None:
             return None, "invalid_solana_address"
         if account.get("wallet") == addr:
-            return addr, None                       # same address: no audit churn
+            return None, "wallet_unchanged"         # a change must change
         cool = float(self.acfg.get("walletCooldownMinutes", 60))
         eff = t + cool * 60
         self.db.conn.execute(

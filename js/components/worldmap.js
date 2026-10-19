@@ -21,25 +21,9 @@ export function WorldMap() {
           never crosses the public door.
         </p>
 
-        <svg class="wm__map" id="wm-map" viewBox="0 0 360 180" role="img"
-             aria-labelledby="wm-title" data-reveal>
-          <defs><pattern id="wm-grid" width="20" height="20" patternUnits="userSpaceOnUserSpace">
-            <path d="M20 0 H0 V20" class="wm__grid" fill="none"/>
-          </pattern></defs>
-          <rect width="360" height="180" fill="url(#wm-grid)"/>
-          <g id="wm-world">
-            <g id="wm-land"></g>
-            <line class="wm__grid" x1="0" y1="90" x2="360" y2="90"/>
-            <g id="wm-pins"></g>
-          </g>
-        </svg>
-        <div class="wm__ctl" aria-label="map controls">
-          <button type="button" class="btn btn--sm" data-wm-z="in" aria-label="zoom in">+</button>
-          <button type="button" class="btn btn--sm" data-wm-z="out" aria-label="zoom out">−</button>
-          <button type="button" class="btn btn--sm" data-wm-z="reset">whole world</button>
-        </div>
-        <div class="wm__detail" id="wm-detail" hidden></div>
-        <p class="wm__attr">outline: Natural Earth, public domain, 1:110 m · counts are places, never people · drag to pan, wheel or double-click to zoom</p>
+        <div class="wm__canvas" id="wm-map" role="region"
+             aria-labelledby="wm-title" tabindex="0" data-reveal></div>
+        <p class="wm__attr">map data © OpenStreetMap contributors (ODbL) · counts are places, never people · drag to pan, wheel or double-click to zoom</p>
 
         <div id="pb-world" data-reveal><!-- the crowd's shape, injected by the app --></div>
 

@@ -387,37 +387,21 @@
 /* — the world map: where the paper comes from (feature two) —
    stroke over fill, tabular chips, and the press-sheet vow holds. */
 .worldmap { background: var(--ink) }
-.wm__map { display: block; width: min(760px, 100%); margin: var(--sp-2) auto;
-  border: 1px solid var(--line); touch-action: pan-y; cursor: grab; user-select: none }
-.wm__map.is-drag { cursor: grabbing }
-.wm__grid { stroke: var(--line); stroke-width: .5; fill: none }
-.wm__coast { fill: none; stroke: var(--line-2); stroke-width: .8;
-  vector-effect: non-scaling-stroke }
-.wm__pin { cursor: pointer }
-.wm__dot { fill: var(--green) }
-.wm__pin--cluster .wm__dot { fill: var(--gold) }
-.wm__halo { fill: var(--green); fill-opacity: .18 }
-.wm__pin--cluster .wm__halo { fill: var(--gold); fill-opacity: .16 }
-.wm__count { fill: var(--cream); font-family: var(--mono);
-  paint-order: stroke; stroke: var(--ink); stroke-width: .4 }
-.wm__ctl { display: flex; gap: var(--sp-2); justify-content: center;
-  margin-bottom: var(--sp-2) }
-.wm__ctl button { font-family: var(--mono); font-size: .66rem;
-  letter-spacing: .14em; text-transform: uppercase; color: var(--cream-dim);
-  background: none; border: 1px solid var(--line); padding: .35em .8em;
-  cursor: pointer }
-.wm__ctl button:hover { color: var(--cream); border-color: var(--line-2) }
-.wm__detail { max-width: 34rem; margin: 0 auto var(--sp-2);
-  border: 1px solid var(--line-2); padding: var(--sp-1) var(--sp-2) }
-.wm__detail-word { font-family: var(--serif); font-weight: 700;
-  margin: 0 0 .2em }
-.wm__detail-count { font-family: var(--mono); font-size: .68rem;
-  letter-spacing: .12em; text-transform: uppercase; color: var(--cream-dim);
-  margin: 0 0 .35em; font-variant-numeric: tabular-nums }
-.wm__detail-x { font-family: var(--mono); font-size: .62rem;
-  letter-spacing: .16em; text-transform: uppercase; color: var(--cream-faint);
-  cursor: pointer; margin: 0 }
-.wm__detail-x:hover { color: var(--cream) }
+.wm__canvas { position: relative; height: min(60vh, 460px); max-width: 760px;
+  margin: var(--sp-2) auto; border: 1px solid var(--line); overflow: hidden }
+/* leaflet puts .leaflet-container ON the mount itself, so a descendant form
+   never matched and leaflet's own pale default won the box: the map reads
+   as a flat light sheet until tiles paint. the compound form pins the ink onto the
+   mount, and the belt keeps a child container honest if leaflet ever nests
+   one. (the height lane died here too: it never applied, and a percent on the
+   mount would collapse the box — the height belongs to .wm__canvas alone.) */
+.wm__canvas.leaflet-container, .wm__canvas .leaflet-container {
+  background: var(--ink) }
+.wm__canvas path.wm__seat { stroke: var(--green); stroke-width: 1.5;
+  fill: var(--green); fill-opacity: .35 }
+.wm__canvas .leaflet-control-attribution {
+  font-family: var(--mono); font-size: .6rem; letter-spacing: .1em;
+  color: var(--cream-dim) }
 .wm__attr { font-family: var(--mono); font-size: .6rem; letter-spacing: .12em;
   text-transform: uppercase; color: var(--cream-faint); text-align: center;
   margin: 0 0 var(--sp-2) }
@@ -431,8 +415,7 @@
 .wm__chip b { color: var(--cream); font-variant-numeric: tabular-nums }
 .wm__seat-doors { display: flex; gap: var(--sp-2); flex-wrap: wrap }
 @media (width ≤ 720px) {
-  .wm__map { width: 100% }
-  .wm__ctl { flex-wrap: wrap }
+  .wm__canvas { height: min(52vh, 360px); max-width: none }
 }
 
 /* — the arcade: the games floor (feature three) —
@@ -535,4 +518,30 @@
    zero shadow, the same hairline voice. */
 @media (max-width: 720px) {
   .mast__links { grid-template-columns: repeat(6, 1fr) }
+}
+
+/* ---------------------------------------------------------------- P6Y: the run
+   the first game rides the floor as a live frame on its own rails: a
+   positioned box, a sheet two shades off the page, one hairline. no
+   shadow at all (the map's doctrine carries into the game), no radius, and
+   the phone lane sizes the box for thumbs instead of trusting a ratio. the
+   caption shares the width with the escape pill; the slow-rails note rides
+   a mono rail like every other silence on this sheet. */
+.run { background: var(--ink) }
+.run__stage { margin: var(--sp-4) 0 0 }
+.run__frame { position: relative; height: min(calc(100svh - 19rem), 43rem);
+  min-height: 18rem; border: 1px solid var(--line-2); background: var(--ink-2) }
+.run__frame iframe { position: absolute; inset: 0; width: 100%; height: 100%;
+  border: 0; display: block }
+.run__cap { display: flex; flex-wrap: wrap; gap: var(--sp-3);
+  align-items: center; justify-content: space-between;
+  margin: var(--sp-2) 0 0 }
+.run__keys { font-family: var(--mono); font-size: var(--fs-caption);
+  color: var(--cream-dim) }
+.run__down { margin: var(--sp-2) 0 0; border-left: 3px solid var(--line);
+  padding-left: var(--sp-2); font-family: var(--mono);
+  font-size: var(--fs-caption); color: var(--cream-dim) }
+@media (max-width: 760px) {
+  .run__frame { height: 56svh }
+  .run__cap { flex-direction: column; align-items: flex-start }
 }

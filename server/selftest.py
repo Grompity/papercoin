@@ -1179,6 +1179,83 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
     check("wallet: an anonymous change is 401 (authorization lives on the route)",
           stt == 401 and payload.get("error") == "not_authenticated")
 
+    # ------------------------------------------------ P6AA change-wallet law
+    # the account-settings desk, end to end: what counts as a change, what a
+    # client-typed account_id can move, what an already-written reward
+    # remembers about where it was told to land, and where a flood is stopped.
+    stt, payload = go("POST", "/api/account/start",
+                      body={"email": "wallet.changer@paper.io"})
+    tokw = magic_from(payload or {})
+    outw = r.dispatch("GET", "/api/auth/magic", {"token": tokw}, {}, {}, None)
+    seatw = outw[2]["Set-Cookie"].split("PBSD=")[1].split(";")[0]
+    ckw = {"PBSD": seatw}
+    idw = database.conn.execute(
+        "SELECT id FROM accounts WHERE email='wallet.changer@paper.io'"
+        ).fetchone()["id"]
+    stt, before_g = go("GET", "/api/account", cookies=ck)   # the other account, before
+    idg = before_g["account"]["id"]                     # a stranger with a real row
+    KEEP = CA[::-1]                          # the address a pending reward is written with
+    database.conn.execute(
+        "INSERT INTO rewards(account_id,competition_id,wallet_address,amount,"
+        "created_at) VALUES(?,?,?,?,?)", (idw, cid, KEEP, 5.0, time.time()))
+    database.conn.commit()
+    stt, payload = go("POST", "/api/account/wallet", cookies=ckw, headers=JSONISH,
+                      body={"wallet": CA, "account_id": idg, "username": "wrongname"})
+    check("P6AA an authenticated change lands on the session's own row",
+          stt == 200 and payload.get("wallet") == CA, f"{stt} {str(payload)[:80]}")
+    check("P6AA a client-typed account_id is decoration: the stranger's row did not move",
+          database.conn.execute("SELECT wallet FROM accounts WHERE id=?", (idg,))
+          .fetchone()["wallet"] == before_g["account"]["wallet"], str(idg))
+    stt, payload = go("GET", "/api/account", cookies=ckw)
+    check("P6AA the new wallet persists and speaks from the account's own details",
+          stt == 200 and (payload.get("account") or {}).get("wallet") == CA
+          and (payload.get("account") or {}).get("wallet_effective_at"), str(stt))
+    stt, payload = go("GET", "/api/account", cookies=ck)
+    check("P6AA points, identity, and unrelated fields rode the change untouched",
+          stt == 200
+          and payload.get("points") == before_g.get("points")
+          and payload["account"]["username"] == before_g["account"]["username"]
+          and payload["account"]["email"] == before_g["account"]["email"]
+          and payload["account"]["wallet"] == before_g["account"]["wallet"],
+          f"{payload['account']} {payload.get('points')}")
+    audit1 = database.conn.execute(
+        "SELECT COUNT(*) n FROM wallet_audit WHERE account_id=?", (idw,)).fetchone()["n"]
+    stt, payload = go("POST", "/api/account/wallet", cookies=ckw, headers=JSONISH,
+                      body={"wallet": CA})
+    audit2 = database.conn.execute(
+        "SELECT COUNT(*) n FROM wallet_audit WHERE account_id=?", (idw,)).fetchone()["n"]
+    check("P6AA an unchanged submission is refused as a change (and churns no audit)",
+          stt == 422 and payload.get("error") == "wallet_unchanged" and audit2 == audit1,
+          f"{stt}/{audit2}")
+    stt, payload = go("POST", "/api/account/wallet", cookies=ckw, headers=JSONISH,
+                      body={"wallet": ""})
+    check("P6AA an empty box is not an address",
+          stt == 422 and payload.get("error") == "invalid_solana_address", str(stt))
+    stt, payload = go("GET", "/api/account", cookies=ckw)
+    check("P6AA a pending reward keeps the address it was written with (no silent redirect)",
+          stt == 200
+          and (payload.get("rewards") or [{}])[0].get("wallet_address") == KEEP,
+          str(payload)[:90])
+    CA2 = CA[1:] + "k"                       # same length, still a base58 shape
+    stt, payload = go("POST", "/api/account/wallet", cookies=ckw, headers=JSONISH,
+                      body={"wallet": CA2})
+    check("P6AA a second genuine change is accepted (a refused no-op is not a lockout)",
+          stt == 200 and payload.get("wallet") == CA2, str(stt))
+    flooded = None
+    for _n in range(8):
+        stt, payload = go("POST", "/api/account/wallet", cookies=ckw, headers=JSONISH,
+                          body={"wallet": CA if (_n % 2) else CA2})
+        if stt == 429:
+            flooded = payload.get("error")
+            break
+    check("P6AA a flood of change POSTs meets the per-account bucket",
+          flooded == "wallet_rate_limited", str(stt))
+    _pbjs7 = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                               "paperboard.js")).read()
+    check("P6AA the shipped js keeps its two-stage save and its copy verb",
+          "walletArmed" in _pbjs7 and '"copy-wallet"' in _pbjs7
+          and "confirm?" in _pbjs7, str(len(_pbjs7)))
+
     stt, payload = go("POST", "/api/account/start", body={"email": "grompity@paper.io"})
     toke = magic_from(payload or {})
     database.conn.execute("UPDATE magic_links SET expires_at=? WHERE token_hash=?",
@@ -2891,7 +2968,7 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
           " before the scoring, the app boots its own corner (startWorldMap"
           " answers to the page's boot), it speaks to exactly the three doors"
           " the server ships, and the map's CSS keeps the press-sheet vow —"
-          " stroke over fill, tabular chips, and zero box-shadow in the whole"
+          " a hairline frame, tabular chips, and zero box-shadow in the whole"
           " block",
           'id="worldmap"' in _wjs and 'href="#worldmap"' in _masts
           and _mains.index("Artboard()") < _mains.index("WorldMap()")
@@ -2900,8 +2977,8 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
           and all(_k in uxjs for _k in ("/api/worldmap",
                                         "/api/account/location/remove",
                                         '"/api/account/location"'))
-          and ".wm__chips" in _cssB and ".wm__coast" in _cssB
-          and 'id="wm-land"' in _wjs
+          and ".wm__chips" in _cssB and ".wm__canvas" in _cssB
+          and 'class="wm__canvas"' in _wjs
           and "box-shadow" not in _cssB.split("the world map:")[1],
           "the sheet's map drifted")
     _wdb.close()
@@ -3104,32 +3181,34 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
                   "components", "homedash.js"), encoding="utf-8").read()
     _hero = open(os.path.join(os.path.dirname(__file__), "..", "js",
                  "components", "hero.js"), encoding="utf-8").read()
-    check("P6R the fold is structural: exactly six folds exist in the mount"
-          " (home, standings, artboard, worldmap, arcade, tokens), the router"
-          " is the WHOLE navigation with no dependency (its file contains not"
-          " one import — the vow pinned as absence, the strongest form), it"
-          " speaks only the hash and the browser's own back/forward, and the"
-          " sections ride their folds unmoved (the six calls still stand in"
-          " the mount in the day's order — the redesign is the shelf, not"
-          " the print)",
+    check("P6R the fold is structural: seven folds exist in the mount"
+          " (home, standings, artboard, worldmap, arcade, run, tokens),"
+          " the router is the WHOLE navigation with no dependency (its file"
+          " contains not one import — the vow pinned as absence, the"
+          " strongest form), it speaks only the hash and the browser's own"
+          " back/forward, and the sections ride their folds unmoved (the"
+          " seven calls still stand in the mount in the day's order — the"
+          " redesign is the shelf, not the print)",
           _nav.count("import ") == 0
           and all(('fold("' + _v + '"') in _mains for _v in
                    ("home", "standings", "artboard", "worldmap", "arcade",
-                    "tokens"))
+                    "run", "tokens"))
           and all(_k in _nav for _k in ("VIEWS", "hashchange", "is-view",
                                         "scrollIntoView", "is-in")),
-          "six folds, one file, zero dependencies")
-    check("P6R the index has exactly five doors and the mast speaks them:"
-          " five mast__link and no more (the seven-link sprawl is the"
-          " redesign's reason for existing), the five hrefs are the five"
-          " VIEWS names verbatim (mast and router must agree, or the battery"
+          "seven folds, one file, zero dependencies")
+    check("P6R the index has exactly six doors and the mast speaks them:"
+          " six mast__link and no more (the seven-link sprawl is the"
+          " redesign's reason for existing; the run print raised five to six"
+          " by the owner's hand in P6Y), the six hrefs are six VIEWS names"
+          " verbatim (mast and router must agree, or the battery"
           " quarrels them), the brand rides the front page, the one action is"
           " the buy pill, and the hero now carries one primary and one"
           " secondary — the third pill was cut, its hop now lives as a door"
           " on the press sheet where it earns its keep",
-          _masts.count('class="mast__link"') == 5
+          _masts.count('class="mast__link"') == 6
           and all(('href="#' + _v + '"') in _masts for _v in
-                  ("standings", "artboard", "worldmap", "arcade", "tokens"))
+                  ("standings", "artboard", "worldmap", "arcade", "run",
+                   "tokens"))
           and 'href="#home"' in _masts and "mast__cta" in _masts
           and _hero.count('class="btn') == 2 and "#frontpage" not in _hero,
           str([_masts.count('class="mast__link"'), _hero.count('class="btn')]))
@@ -3452,15 +3531,17 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
           " JSON vow lives), the file lane precedes the generic static fall,"
           " the page door rides beside admin's, the mast gained its sixth"
           " door without touching the five pinned prints (the studio link"
-          " wears its own class, so the five-name count the redress pinned"
-          " stays the truth), and the studio's own module speaks only the"
+          " has stepped off the mast for a while: a pause, not a deletion,"
+          " and when the run print raised the count to six in P6Y the five"
+          " pinned prints stood untouched),"
+          " and the studio's own module speaks only the"
           " routes the server actually keeps",
           _sroute.rindex('if path == "/api/studio/campaigns":')
           > _sroute.index('if method == "POST":')
           and _sroute.index('"/studio/assets/"') < _sroute.index('if path == "/"')
           and _sroute.count('class="mast__link"') == 0          # (the pins own that count)
-          and _smast.count('class="mast__link"') == 5
-          and 'mast__link--studio' in _smast and 'href="/studio"' in _smast
+          and _smast.count('class="mast__link"') == 6
+          and 'mast__link--studio' not in _smast and 'href="/studio"' not in _smast
           and all(_k in _sjs for _k in ("/api/studio", "/api/studio/campaigns",
                                         "/api/studio/regenerate",
                                         "/api/studio/export"))
@@ -4047,16 +4128,17 @@ var _p6vVerdict = pvBad.length ? "P6V-FAILS " + pv.join(" ") : "P6V-scenarios-be
           str([( _p["country"], _p.get("city"), _p["count"], _p["precision"])
                for _p in _wPub["places"]])[:140])
     _wadb.close()
-    check("P6W the map on the page is the real world: the runtime imports"
-          " the vendored geometry, the coasts come from it (the land layer"
-          " exists in the markup and in the code that fills it), the"
-          " controls and the detail panel and the attribution are on the"
-          " page, and the shipped geometry is genuinely the world (over a"
-          " hundred polygons, Australia and Antarctica where a cartographer"
-          " puts them), and the counts stay aggregate words",
-          "WORLD_LAND" in uxjs and 'id="wm-map"' in _wjs
-          and "wm-land" in uxjs and "Natural Earth" in _wjs
-          and "data-wm-z" in _wjs and 'id="wm-detail"' in _wjs
+    check("P6X the map on the page is the real world: the custom retires"
+          " (no svg geometry on the page, the projection and the pins and"
+          " the wheel wiring retire with it), the mount is a focusable"
+          " region leaflet takes over, the attribution says whose ground it"
+          " is, and the shelf's geometry file rests untouched — the shipped"
+          " data is genuinely the world (over a hundred polygons, Australia"
+          " and Antarctica where a cartographer puts them), and the counts"
+          " stay aggregate words",
+          '<svg' not in _wjs and 'id="wm-map"' in _wjs
+          and 'role="region"' in _wjs and "OpenStreetMap" in _wjs
+          and "wm-land" not in uxjs and "WORLD_LAND" not in uxjs
           and len(_wLandGj) > 100
           and any(110 < _p[0] < 155 and -45 < _p[1] < -10
                   for _q in _wLandGj for _r in _q for _p in _r)
@@ -4080,6 +4162,275 @@ var _p6vVerdict = pvBad.length ? "P6V-FAILS " + pv.join(" ") : "P6V-scenarios-be
           and "box-shadow" not in _cssV and "gradient" not in _cssV,
           str([_k for _k in ("data-lb", "is-load", "?name=")
                if _k not in _wSjs])[:80])
+
+    # ---- P6X the real map rides leaflet, and the studio rides the shelf ---
+    _xD = os.path.join(os.path.dirname(__file__), "..", "js", "vendor", "leaflet")
+    _xJs = open(os.path.join(_xD, "leaflet.js"), encoding="utf-8").read()
+    _xCs = open(os.path.join(_xD, "leaflet.css"), encoding="utf-8").read()
+    _xIx = open(os.path.join(os.path.dirname(__file__), "..",
+                             "index.html"), encoding="utf-8").read()
+    _xHa = open(os.path.join(os.path.dirname(__file__), "paperboard",
+                             "http_app.py"), encoding="utf-8").read()
+    check("P6X the world arrives from a real cartographer: leaflet 1.9.4 is"
+          " vendored in the repo (no cdn can ever be down), its css is"
+          " linked before the sheet's own so the sheet wins any argument,"
+          " its js loads before the module so L stands on the board before"
+          " the board is drawn, and the runtime speaks the map with the"
+          " tile host's true name and its own class names — a real basemap"
+          " with a real attribution, no key and no bill",
+          "Leaflet 1.9.4" in _xJs and len(_xCs) > 8000
+          and "js/vendor/leaflet/leaflet.css" in _xIx
+          and _xIx.index("leaflet.css") < _xIx.index("css/paperboard.css")
+          and _xIx.index("js/vendor/leaflet/leaflet.js") < _xIx.index("js/main.js")
+          and all(_k in uxjs for _k in ("L.map(", "L.tileLayer(",
+                                        "L.circleMarker", "layerGroup",
+                                        "tileerror", "openstreetmap.org")),
+          f"{len(_xJs)} bytes of leaflet, {len(_xCs)} of its css")
+    check("P6X the crowd lane is a layer and not a relayout: the seats are"
+          " circleMarkers bound to the seat's words, count, and precision;"
+          " the first drawn crowd fits the frame once and no more;"
+          " everything redraws through one clearLayers, and the svg's whole"
+          " machinery is gone from the file while the data file rests on"
+          " the shelf unread by the runtime",
+          all(_k in uxjs for _k in ("bindPopup", "fitBounds", "clearLayers"))
+          and not any(_k in uxjs for _k in ("wmProject", "wmPins", "wmClusters",
+                                            "wmApply", "wmGeoWire", "wmDetail",
+                                            "wmPick", "wmSvg", "wmUnitPoint")),
+          "one leaflet layer, one truth")
+    check("P6X the studio steps off the public floor and says so: no mast"
+          " word for it, its own page wears the pause out loud, every"
+          " studio door (the desk's five routes and the file lane) is still"
+          " shipped in the same branches, and the /studio rewrite on"
+          " vercel still leads to a page that is not empty",
+          "mast__link--studio" not in _masts
+          and "paused" in _shtml and "st-paused" in _shtml
+          and "st-paused" in _cssV
+          and any(_r["source"] == "/studio" for _r in _wVc["rewrites"])
+          and all(_d in _xHa for _d in ("/api/studio", "/api/studio/campaigns",
+                                        "/api/studio/campaign",
+                                        "/api/studio/export",
+                                        "/api/studio/regenerate"))
+          and "/studio/assets/" in _xHa,
+          "five routes and the file lane ride on")
+    # — the gazetteer's wide lane, with a stand-in wire: one question per
+    #   place, the policy's User-Agent, a cache, and a road that is no place.
+    _xAsks, _xResp, _xDown = [], [b"[]"], [False]
+    class _XResp:
+        def __init__(self, body):
+            self._b = body
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def read(self):
+            return self._b
+    def _x_wire(req, timeout=None):
+        _xAsks.append((req.full_url, str(req.get_header("User-agent") or "")))
+        if _xDown[0]:
+            raise OSError("the wire is down")
+        return _XResp(_xResp[0])
+    import urllib.request as _xur
+    _xOld = _xur.urlopen
+    _xur.urlopen = _x_wire
+    def _x_reset():
+        _xAsks.clear(); _wPl._CACHE.clear(); _wPl._last_ask[0] = time.time() - 5
+    _x_reset()
+    _xResp[0] = (b'[{"lat":"-18.1","lon":"177.9","type":"country",'
+                 b'"category":"place"}]')
+    _xF1 = _wPl.locate("Fiji Islands", "", "", live=True)
+    _xF2 = _wPl.locate("Fiji Islands", "", "", live=True)
+    _xFijiAsks = len(_xAsks)
+    _xFijiHost, _xFijiUa = _xAsks[0] if _xAsks else ("", "")
+    _x_reset()
+    _xResp[0] = (b'[{"lat":"9.9","lon":"-84.0","type":"road",'
+                 b'"category":"highway"}]')
+    _xRoad1 = _wPl.locate("Nowherebend", "", "", live=True)
+    _xRoad2 = _wPl.locate("Nowherebend", "", "", live=True)
+    _xRoadAsks = len(_xAsks)
+    _x_reset()
+    _xDown[0] = True
+    _xDead = _wPl.locate("Neverland", "", "", live=True)
+    _xDeadAsks = len(_xAsks)
+    _xDown[0] = False
+    _x_reset()
+    _xLaw = _wPl.locate("USA", "Kansas", "Lawrence", live=True)
+    _xLawAsks = len(_xAsks)
+    _xur.urlopen = _xOld
+    _wPl._CACHE.clear()
+    check("P6X the wide lane keeps its manners and its honour: an unknown"
+          " country with live on asks the free gazetteer once and once only"
+          " (the second look rides the cache, and the ask carries the"
+          " policy's User-Agent to the nominatim host); a road answer is no"
+          " place and never becomes a pin; a dead wire is no answer rather"
+          " than a lie; and the brief's own known city asks the wire not at"
+          " all — the tables answer first and no pin is ever invented",
+          _xF1 == (-18.1, 177.9, "country") and _xF2 == _xF1
+          and _xFijiAsks == 1 and _xFijiUa.startswith("paperboard")
+          and "nominatim" in _xFijiHost
+          and _xRoad1 is None and _xRoad2 is None and _xRoadAsks == 1
+          and _xDead is None and _xDeadAsks == 1
+          and _xLaw == (38.97, -95.24, "city") and _xLawAsks == 0,
+          f"fiji {_xFijiAsks} road {_xRoadAsks} lawrence {_xLawAsks}")
+
+    # ------------------------------------------------------ P6Y: the run
+    # the first game rides the floor as a live frame. every claim below is
+    # pinned in repo bytes; the rails themselves were read live this day:
+    # the game serves a self-contained document (a menu, a board, all input
+    # lanes) with no X-Frame-Options and no Content-Security-Policy, its
+    # shipped game.js proves the three sandbox lanes the frame grants and
+    # the tune that needs the autoplay permit, its own POST /api/score and
+    # GET /api/leaderboard?scope=alltime|weekly answer to ITSELF on the
+    # game's rails (its weekly window opens a Monday and the arcade's
+    # opens a Friday — two clocks, one fact for now: no paperboard point
+    # rides a runner's word, and none was paid).
+    _yRun = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                  "components", "run.js"), encoding="utf-8").read()
+    _yApp = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                  "paperboard.js"), encoding="utf-8").read()
+    _yCss = open(os.path.join(os.path.dirname(__file__), "..", "css",
+                  "paperboard.css"), encoding="utf-8").read()
+    _yShelf = os.path.join(os.path.dirname(__file__), "..", "js", "vendor")
+    _yBlock = _yCss[_yCss.index(".run {"):]
+    check("P6Y the run print names the rails as they are: the frame's src is"
+          " the game's own absolute origin (no proxy, no copy, no relative"
+          " trick), the escape pill repeats that same absolute url under"
+          " target=_blank and rel=noopener, the frame is titled for the"
+          " screen-reader, the referrer lane is named, and no byte of the"
+          " game was brought home — the vendor shelf still holds leaflet"
+          " alone and a copied paper-run would be a lie by the shelf",
+          _yRun.count("https://paper-run-production.up.railway.app/") == 2
+          and 'src="https://paper-run' in _yRun
+          and 'target="_blank" rel="noopener"' in _yRun
+          and 'title="Paper Run' in _yRun
+          and os.listdir(_yShelf) == ["leaflet"]
+          and not os.path.isdir(os.path.join(_yShelf, "paper-run")),
+          "the rails stay the game's; the shelf says so")
+    check("P6Y the frame is fenced to the game's own proven needs: the"
+          " sandbox is exactly the three lanes its shipped source proves"
+          " (the draw loop, the pr_name/pr_api/pr_muted storage, the share"
+          " lane's window.open), the permissions permit is autoplay alone"
+          " (the tune rides an audio element at preload auto), and nothing"
+          " the game does not use was slipped in — no fullscreen, no"
+          " clipboard, no geolocation, no forms, no modals",
+          _yRun.count('sandbox="allow-scripts allow-same-origin allow-popups"') == 1
+          and _yRun.count('allow="autoplay"') == 1
+          and not any(_k in _yRun for _k in
+                      ("allowfullscreen", "allowclipboard", "clipboard-write",
+                       "geolocation", "fullscreen", "allowforms")),
+          "the fence is the source's own inventory")
+    check("P6Y the seventh door rides every lane that must know it: the"
+          " router's index is pinned whole (mast, router, and mount must all"
+          " three speak one index — the run between the floor and the"
+          " tokens), the fold stands in the mount in that order, startRun"
+          " boots after the floor's runner and before the nav (the frame"
+          " watches itself and the router must not wait on it), and the"
+          " print speaks to no door at all: no fetch, no score, no client"
+          " promise",
+          'const VIEWS = ["home", "standings", "artboard", "worldmap",'
+          ' "arcade", "run", "tokens"];' in _nav
+          and _mains.index('fold("arcade"') < _mains.index('fold("run"')
+          < _mains.index('fold("tokens"')
+          and _mains.index("startArcade();") < _mains.index("startRun();")
+          < _mains.index("startNav();")
+          and not any(_k in _yRun for _k in ("fetch(", "/api/", "window.PB")),
+          "one index, one order, zero client promises")
+    check("P6Y the one trick the print owns is the slow-rails watch: the"
+          " runtime takes the frame and the note by their ids, gives the"
+          " rails nine seconds, clears the watch on the load event — and"
+          " because a refused embed raises no cross-origin error, the"
+          " escape pill rides the figcaption OUTSIDE the framed box, where"
+          " no blocked rail can swallow it",
+          "function startRun()" in _yApp
+          and 'getElementById("pb-run-frame")' in _yApp
+          and 'getElementById("pb-run-down")' in _yApp
+          and ', 9000)' in _yApp and "clearTimeout(watch)" in _yApp
+          and _yRun.index("</div>") < _yRun.index("figcaption"),
+          "nine seconds, then the pill speaks for itself")
+    check("P6Y the game rides the doctrine whole: the run block is the"
+          " sheet's tail (it follows the floor's), it carries no box-shadow"
+          " and no radius (the map's ink law carried into the game), the"
+          " frame box is positioned and the iframe absolute within it (the"
+          " box never trusts an aspect ratio to survive a phone), the note"
+          " speaks in mono like every other silence, and the phone lane"
+          " sizes the box in svh and stacks the caption",
+          _yCss.index(".run {") > _yCss.index(".arcade {")
+          and "box-shadow" not in _yBlock and "border-radius" not in _yBlock
+          and "position: relative" in _yBlock and "position: absolute" in _yBlock
+          and "font-family: var(--mono)" in _yBlock
+          and "@media (max-width: 760px)" in _yCss
+          and "56svh" in _yCss,
+          "the doctrine, extended to the machine that plays")
+
+    # ---- P6Z the white map: the view goes first, the ink rides the mount --
+    # the wild map answered as a flat pale box. the live probe said why: the
+    # mount measured 634x392 and painted rgb(221,221,221) — leaflet.css's own
+    # .leaflet-container default — with zero tile imgs, zero markers, and an
+    # attribution bare of the words it should carry: the init had thrown at
+    # its own first bounds call ("Set map center and zoom first."), before
+    # setView, and everything after the throw never ran. the tile line's
+    # /osm/osm-sl/ path answered 400 where the bare {z}/{x}/{y}.png answers
+    # 200 image/png (both read off the live host the day it was fixed), and
+    # the ink lane that should have kept the box dark sat in a descendant
+    # form that never matched: leaflet puts .leaflet-container on the mount
+    # itself. the fix: view first, path trimmed, ink pinned on the mount, and
+    # the fold's hashchange tells a hidden-born map when its box moved (the
+    # router's flip fires no window resize) so it invalidates and refits —
+    # a fit that would bind a nonsense view to a zero box waits for width.
+    _zSrc = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                  "paperboard.js"), encoding="utf-8").read()
+    _zCss = open(os.path.join(os.path.dirname(__file__), "..", "css",
+                  "paperboard.css"), encoding="utf-8").read()
+    _zBox = _zCss[_zCss.index(".worldmap {"):]
+    check("P6Z the view goes first: the file sets the view before it speaks "
+          "any bounds word, the call that threw (the chained panInsideBounds) "
+          "is gone from the file entirely, and no bounds name stands before "
+          "setView — leaflet guards them all with _loaded and _loaded is born "
+          "in setView",
+          _zSrc.index("WM.map.setView(") < _zSrc.index("WM.map.setMaxBounds(")
+          and "panInsideBounds" not in _zSrc
+          and "bindPopup" in _zSrc and "fitBounds" in _zSrc
+          and "clearLayers" in _zSrc
+          and 'WM.tiles.on("tileerror"' in _zSrc
+          and 'WM.map.on("tileerror"' not in _zSrc,
+          "the map gets its view before it is asked for ground")
+    check("P6Z the tile line wears the pattern the live host answers: the "
+          "day's probes said /osm/osm-sl/{z}/{x}/{y}.png answers 400 and the "
+          "same host's bare /{z}/{x}/{y}.png answers 200 image/png — the file "
+          "now says what was seen, the attribution lane rides it unchanged, "
+          "and no second map host crept in",
+          '"https://tile.openstreetmap.org/{z}/{x}/{y}.png"' in _zSrc
+          and "/osm/" not in _zSrc
+          and "openstreetmap.org" in _zSrc and "contributors" in _zSrc,
+          "the tiles speak the host's true shape")
+    check("P6Z the ink is pinned on the mount itself: leaflet sets "
+          ".leaflet-container on the very element it is handed, so the box's "
+          "ink rides the compound form (a belt still covers a nested one) and "
+          "the old doubly-descendant form that never matched is gone — with "
+          "it the attribution's mono voice returns; the box's height stays "
+          "the canvas's own, for on the mount a percent height would collapse "
+          "the map to nothing",
+          ".wm__canvas.leaflet-container" in _zBox
+          and _zBox.index(".wm__canvas.leaflet-container")
+          < _zBox.index(".wm__canvas .leaflet-container")
+          and ".wm__canvas .leaflet-container .leaflet-control-attribution"
+          not in _zBox
+          and ".wm__canvas .leaflet-control-attribution" in _zBox
+          and "background: var(--ink)" in _zBox
+          and "#ddd" not in _zBox[:_zBox.index(".wm__attr")],
+          "the sheet's ink, not leaflet's pale default")
+    check("P6Z a map born in the hidden fold is told when the fold opens: "
+          "the runtime rides hashchange, the ride is deferred (the router "
+          "registers its own listener after this one and its class flip "
+          "must land before the check reads it), the wake checks the fold's "
+          "is-view and stays quiet for a fold that never opened, and the "
+          "wake invalidates the size and refits a crowd whose first fit was "
+          "skipped — because a fit on a zero box would bind a nonsense view, "
+          "and the draw's own guard now demands a clientWidth",
+          '"hashchange"' in _zSrc and "invalidateSize" in _zSrc
+          and "clientWidth" in _zSrc and "is-view" in _zSrc
+          and 'data-view="worldmap"' in _zSrc,
+          "a fold that opens gets a map that can see its own box")
+
     print("failures:", len(FAILURES))
     return len(FAILURES)
 

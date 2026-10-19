@@ -497,15 +497,22 @@ class Router:
                 return 200, s.dashboard(s.account_by_id(account["id"]), cid), None
 
             if path == "/api/account/wallet":
+                # the money door: gated like its siblings, with its own bucket
+                # (the pattern every account-state POST keeps), and only then
+                # handed to the service, whose fresh gate answers last.
                 denied = acct_gate()
                 if denied:
                     return denied
+                if not self._allow(f"wallet:{account['id']}",
+                                   rl["walletPerTenMinutes"], 600):
+                    return fail(429, "wallet_rate_limited")
                 addr, err = s.change_wallet(
                     account, (body or {}).get("wallet"),
                     bool(session and session.get("fresh")))
                 if err:
                     return fail({"fresh_auth_required": 428,
-                                 "invalid_solana_address": 422}.get(err, 422), err)
+                                 "invalid_solana_address": 422,
+                                 "wallet_unchanged": 422}.get(err, 422), err)
                 fresh_row = s.account_by_id(account["id"])
                 return ok(wallet=addr,
                           wallet_effective_at=fresh_row["wallet_effective_at"])

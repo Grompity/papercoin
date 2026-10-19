@@ -8,7 +8,6 @@
    ============================================================ */
 
 import { CONFIG } from "./config.js";
-import { WORLD_LAND } from "./world-land.js";
 
 const API = (p) => (CONFIG.board.base || "") + p;
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -277,7 +276,9 @@ function paintDash(animate = true) {
     <div class="metric"><span class="metric__k">Verified</span><span class="metric__v">${fmt(d.verified_posts)}</span></div>
     <div class="metric"><span class="metric__k">Est. reward</span><span class="metric__v">${d.share_est ? `${fmt(d.share_est)} <span class="u">${unit}</span>` : '<span class="u">—</span>'}</span></div>
     <div class="metric"><span class="metric__k">Reward wallet</span><span class="metric__v">${esc(shortAddr(acct.wallet))}
-      <button type="button" class="p-dash__swap" data-action="open-wallet">change</button></span></div>`;
+      <button type="button" class="p-dash__swap" data-action="open-wallet">change</button>
+      <button type="button" class="p-dash__swap" data-action="copy-wallet">copy</button>
+      <span class="dim" data-slot="wallet-copy"></span></span></div>`;
   const recent = $('[data-slot="acct-recent"]');
   if (recent) recent.innerHTML = (d.recent && d.recent.length)
     ? d.recent.map((r) => `<p class="dash-line"><b class="${r.points > 0 ? "pos" : "dim"}">${r.points > 0 ? "+" : ""}${fmt(r.points, 1)}</b> pts
@@ -477,10 +478,27 @@ async function doOnboard() {
   }
 }
 
+let walletArmed = null;   /* two stages to a save: the first click arms, the second commits */
 async function doChangeWallet() {
   const input = $("#pb-wallet-settings-input");
+  const save = $(`[data-action="change-wallet"]`);
   const v = (input?.value || "").trim();
   errSlot("wallet-err", "");
+  if (!v) { errSlot("wallet-err", "name the new address first."); return; }
+  if (v === (((S.dash || {}).account || {}).wallet || null)) {
+    walletArmed = null;
+    if (save) save.textContent = "Save";
+    errSlot("wallet-err", "that is already the reward wallet.");
+    return;
+  }
+  if (walletArmed !== v) {                  /* the explicit confirmation step */
+    walletArmed = v;
+    if (save) save.textContent = "confirm?";
+    errSlot("wallet-err", `confirm: rewards move to ${shortAddr(v)}`);
+    return;
+  }
+  walletArmed = null;
+  if (save) save.textContent = "Save";
   try {
     await post("/api/account/wallet", { wallet: v });
     await refreshAccount(false);
@@ -488,6 +506,8 @@ async function doChangeWallet() {
   } catch (e) {
     const msg = { fresh_auth_required: "open a fresh magic link first — moving money needs a fresh signature-free proof.",
                   invalid_solana_address: "that isn't shaped like a Solana address.",
+                  wallet_unchanged: "that is already the reward wallet.",
+                  wallet_rate_limited: "ease off — the wallet door is resting.",
                   unsupported_media_type: "form posts need not apply.",
                   account_closed: "that account is closed." }[e.payload?.error]
                 || e.payload?.error || "the wallet desk blinked.";
@@ -552,8 +572,24 @@ function wire() {
         .catch(() => sayCopy("copy it by hand — the clipboard said no."));
       else sayCopy("the clipboard is asleep here — copy it by hand.");
     }
-    else if (a === "open-wallet") setState("wallet");
+    else if (a === "open-wallet") {
+      walletArmed = null;
+      const save = $(`[data-action="change-wallet"]`);
+      if (save) save.textContent = "Save";
+      setState("wallet");
+    }
     else if (a === "change-wallet") await doChangeWallet();
+    else if (a === "copy-wallet") {
+      /* the dash wears a mask; the button copies the whole address */
+      const fb = $('[data-slot="wallet-copy"]');
+      const w = ((S.dash || {}).account || {}).wallet || "";
+      const say = (t) => { if (fb) fb.textContent = t; };
+      if (!w) say("no wallet yet.");
+      else if (navigator.clipboard?.writeText) navigator.clipboard.writeText(w)
+        .then(() => say("the whole address is copied ✓"))
+        .catch(() => say("copy it by hand — the clipboard said no."));
+      else say("the clipboard is asleep here — copy it by hand.");
+    }
     else if (a === "logout") { try { await post("/api/auth/logout"); } catch {} window.location.reload(); }
     else if (a === "connect") connect();
     else if (a === "mock-login") connect();
@@ -748,12 +784,14 @@ export function startArtboard() {
 
 /* ============================================================
    worldmap — where the paper comes from (feature two). the public
-   face is aggregate only: counts by place over the real world
-   (js/world-land.js, Natural Earth at rest). this corner drives the
-   map — coastlines drawn once, one pin per resolved place, nearby
-   pins joining hands at low zoom, pan by hand and zoom by wheel —
-   and it lets a member set or drop their own seat. the counts are
-   places, never people; no account id ever crosses the door.
+   face is aggregate only: counts by place over the real world,
+   drawn by leaflet from openstreetmap's tiles (the old vendored
+   file, js/world-land.js, rests on the shelf). this corner drives
+   the map — one circle marker per resolved place, the first drawn
+   crowd fits the frame once, pan by hand and zoom by wheel or by
+   the two corners — and it lets a member set or drop their own
+   seat. the counts are places, never people; no account id ever
+   crosses the door.
    ============================================================ */
 
 const WM_KEYS = {
@@ -766,184 +804,82 @@ const WM_KEYS = {
   location_rate_limited: "the map is patient — a few seat changes per ten minutes",
 };
 
-/* — the map's own state: one view transform, one place list — */
-const WM = { k: 1, tx: 0, ty: 0, places: [], clusters: [], unplaced: 0,
-             wired: false, land: null };
-
-const wmSvg = () => document.getElementById("wm-map");
-
-function wmProject(p) {                         /* degrees → the 360×180 room */
-  return [p[0] + 180, 90 - p[1]];
-}
-
-function wmLandPath() {                         /* the coasts, computed once */
-  if (WM.land) return WM.land;
-  const parts = [];
-  for (const poly of WORLD_LAND.coordinates) {
-    for (const ring of poly) {
-      let d = "";
-      for (let i = 0; i < ring.length; i++) {
-        const [x, y] = wmProject(ring[i]);
-        d += (i ? "L" : "M") + (x < 0 ? 0 : x > 360 ? 360 : x).toFixed(1)
-           + " " + y.toFixed(1);
-      }
-      parts.push(d + "Z");
-    }
-  }
-  WM.land = parts.join("");
-  return WM.land;
-}
-
-function wmClamp() {
-  WM.k = Math.min(Math.max(WM.k, 1), 12);
-  WM.tx = Math.min(Math.max(WM.tx, (1 - WM.k) * 360), 0);
-  WM.ty = Math.min(Math.max(WM.ty, (1 - WM.k) * 180), 0);
-}
-
-function wmClusters() {
-  /* nearby pins join hands at low zoom: a cell is ~34 px of the drawn map,
-     so what merges depends on the reader's own eye and the current zoom. */
-  const svg = wmSvg();
-  if (!svg) return [];
-  const pxPerUnit = (svg.getBoundingClientRect().width || 720) / 360 * WM.k;
-  const cell = 34 / pxPerUnit;
-  const bins = new Map();
-  for (const p of WM.places) {
-    const [x, y] = wmProject([p.lon, p.lat]);
-    const key = Math.floor(x / cell) + "_" + Math.floor(y / cell);
-    const bin = bins.get(key);
-    if (!bin) bins.set(key, { lon: p.lon * p.count, lat: p.lat * p.count,
-                              count: p.count, member: p, n: 1 });
-    else {
-      bin.lon += p.lon * p.count; bin.lat += p.lat * p.count;
-      bin.count += p.count; bin.n += 1;
-    }
-  }
-  return [...bins.values()].map((b) => ({
-    lon: b.lon / b.count, lat: b.lat / b.count, count: b.count,
-    n: b.n, top: b.member,
-  }));
-}
+/* — the map's own state: one leaflet view, one layer of seats, and the
+   crowd's words — the chips, the markers, and the slot all read the same. */
+const WM = { map: null, tiles: null, layer: null, places: [], unplaced: 0,
+             fitted: false, tilesQuiet: false };
 
 function wmWords(p) {
   const bits = [p.city, p.region, p.country].filter(Boolean);
   return bits.length ? bits.join(", ") : "somewhere";
 }
 
-function wmPins() {
-  const pins = document.getElementById("wm-pins");
-  if (!pins) return;
-  WM.clusters = wmClusters();
-  pins.innerHTML = WM.clusters.map((c, i) => {
-    const [x, y] = wmProject([c.lon, c.lat]);
-    const r = Math.min(6, 1.8 + Math.sqrt(c.count)) / WM.k;
-    const f = Math.max(0.5, 4 / WM.k);
-    return `<g class="wm__pin${c.n > 1 ? " wm__pin--cluster" : ""}" data-wm="${i}"
-      role="button" tabindex="0" aria-label="${artEsc(wmWords(c.top))}${c.n > 1 ? ` and ${c.n - 1} nearer places` : ""} — ${c.count} ${c.count === 1 ? "seat" : "seats"}">
-      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(r * 2.6).toFixed(1)}" class="wm__halo"/>
-      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(2)}" class="wm__dot"/>
-      ${c.count > 1 ? `<text x="${x.toFixed(1)}" y="${(y - r * 3.2).toFixed(1)}"
-        font-size="${(f * 1.9).toFixed(2)}" text-anchor="middle" class="wm__count">${c.count}</text>` : ""}
-    </g>`;
-  }).join("");
+
+
+/* — leaflet: real ground under real counts. the mount keeps the id the svg
+   wore; tile.openstreetmap.org serves the world (their usage policy asks
+   modest traffic and a real attribution — the tile line below carries it),
+   and seats are circleMarkers, so no marker image can break the way the
+   studio's downloads once did across the split deployment origins. */
+
+function wmMapInit() {
+  if (WM.map || !window.L) return WM.map;
+  const mount = document.getElementById("wm-map");
+  if (!mount) return null;
+  WM.map = L.map(mount, { worldCopyJump: true, minZoom: 2, maxZoom: 18,
+                         scrollWheelZoom: true });
+  /* the view goes first, always: every bounds call in leaflet is guarded by
+     _checkIfLoaded, and _loaded is born in setView. P6X asked for the bounds
+     first (a chained bounds ask at the chain's head) and leaflet threw its own
+     "Set map center and zoom first." — which left the mount with no view,
+     no tile layer, no marker layer, and no attribution, because the lines
+     after the throw never ran and WM.map stood truthy for every later
+     visit. the maxBounds still ride after the view, where leaflet is glad
+     to enforce them. */
+  WM.map.setView([20, 0], 2);
+  WM.map.setMaxBounds(L.latLngBounds([[-85, -179], [85, 179]]));
+  /* the tile layer keeps its own handle on purpose: the vendored 1.9.4
+     fires "tileerror" from _tileReady ON THE LAYER (its <img> onerror rides
+     _tileOnError) and that fire is not relayed to the map the way leaflet's
+     docs led P6X to hope — so the quiet word binds the layer direct. when
+     the tile host answers badly the status line says so once, and the map
+     going pale stays a voice, never a silent fake. */
+  WM.tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, minZoom: 0,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(WM.map);
+  WM.tiles.on("tileerror", wmTileTrouble);
+  WM.layer = L.layerGroup().addTo(WM.map);
+  return WM.map;
 }
 
-function wmApply() {
-  const g = document.getElementById("wm-world");
-  if (g) g.setAttribute("transform",
-    `translate(${WM.tx.toFixed(2)} ${WM.ty.toFixed(2)}) scale(${WM.k.toFixed(3)})`);
-  wmPins();
-  const ctl = document.querySelector(".wm__ctl");
-  if (ctl) ctl.dataset.at = WM.k > 1 ? "zoomed" : "the whole world";
+function wmTileTrouble() {
+  if (WM.tilesQuiet) return;
+  WM.tilesQuiet = true;
+  wmSlot("the map: the tiles are quiet — the counts below are true");
 }
 
-function wmZoom(factor, u, v) {
-  const k0 = WM.k;
-  WM.k *= factor;
-  wmClamp();
-  WM.tx = u - (u - WM.tx) * (WM.k / k0);
-  WM.ty = v - (v - WM.ty) * (WM.k / k0);
-  wmClamp();
-  wmApply();
-}
-
-function wmUnitPoint(evt) {                     /* pointer → the 360×180 room */
-  const r = wmSvg().getBoundingClientRect();
-  return [(evt.clientX - r.left) / r.width * 360,
-          (evt.clientY - r.top) / r.height * 180];
-}
-
-function wmDetail(html) {
-  const box = document.getElementById("wm-detail");
-  if (!box) return;
-  box.innerHTML = html || "";
-  box.hidden = !html;
-  box.onclick = (e) => { if (e.target.closest?.("[data-wm-close]")) wmDetail(""); };
-}
-
-function wmPick(i) {
-  const c = WM.clusters[i];
-  if (!c) return;
-  const named = c.top;
-  const at = named.precision === "city" ? ""
-    : named.precision === "region" ? " — at the region's middle"
-    : named.precision === "country" ? " — at the country's middle" : "";
-  const extra = c.n > 1 ? ` · ${c.n} places one cell` : "";
-  wmDetail(`<p class="wm__detail-word">${artEsc(wmWords(named))}${at}</p>`
-    + `<p class="wm__detail-count">${c.count} ${c.count === 1 ? "seat" : "seats"}${extra}</p>`
-    + `<p class="wm__detail-x" data-wm-close role="button" tabindex="0">close ✕</p>`);
-}
-
-function wmGeoWire() {
-  const svg = wmSvg();
-  if (!svg || WM.wired) return;
-  WM.wired = true;
-  const land = document.getElementById("wm-land");
-  if (land) land.innerHTML = `<path class="wm__coast" d="${wmLandPath()}"/>`;
-  svg.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    const [u, v] = wmUnitPoint(e);
-    wmZoom(e.deltaY < 0 ? 1.25 : 1 / 1.25, u, v);
-  }, { passive: false });
-  svg.addEventListener("dblclick", (e) => {
-    const [u, v] = wmUnitPoint(e);
-    wmZoom(1.6, u, v);
-  });
-  let drag = null;
-  svg.addEventListener("pointerdown", (e) => {
-    drag = [e.clientX, e.clientY];
-    svg.classList.add("is-drag");
-  });
-  svg.addEventListener("pointermove", (e) => {
-    if (!drag) return;
-    const r = svg.getBoundingClientRect();
-    WM.tx += (e.clientX - drag[0]) / r.width * 360;
-    WM.ty += (e.clientY - drag[1]) / r.height * 180;
-    drag = [e.clientX, e.clientY];
-    wmClamp();
-    wmApply();
-  });
-  const end = () => { drag = null; svg.classList.remove("is-drag"); };
-  svg.addEventListener("pointerup", end);
-  svg.addEventListener("pointercancel", end);
-  svg.addEventListener("click", (e) => {
-    const pin = e.target.closest?.("[data-wm]");
-    if (pin) wmPick(Number(pin.dataset.wm));
-  });
-  svg.addEventListener("keydown", (e) => {   /* pins are role=button: they owe the keyboard */
-    if (e.key !== "Enter" && e.key !== " ") return;
-    const pin = e.target.closest?.("[data-wm]");
-    if (pin) { wmPick(Number(pin.dataset.wm)); e.preventDefault(); }
-  });
-  const ctl = document.querySelector(".wm__ctl");
-  if (ctl) ctl.addEventListener("click", (e) => {
-    const b = e.target.closest?.("button[data-wm-z]");
-    if (!b) return;
-    const z = b.dataset.wmZ;
-    if (z === "in") wmZoom(1.5, 180, 90);
-    else if (z === "out") wmZoom(1 / 1.5, 180, 90);
-    else { WM.k = 1; WM.tx = 0; WM.ty = 0; wmClamp(); wmApply(); wmDetail(""); }
-  });
+function wmDraw() {                                  /* the crowd, one layer */
+  if (!wmMapInit()) return;                   /* no leaflet: the chips speak */
+  WM.layer.clearLayers();
+  const pts = [];
+  for (const p of WM.places) {
+    pts.push([p.lat, p.lon]);
+    const seat = L.circleMarker([p.lat, p.lon], {
+      radius: 5 + Math.min(14, Math.sqrt(p.count) * 3),
+      className: "wm__seat",
+    });
+    seat.bindPopup(`${artEsc(wmWords(p))} — ${p.count} `
+                   + `${p.count === 1 ? "seat" : "seats"} · ${artEsc(p.precision)}`);
+    seat.addTo(WM.layer);
+  }
+  if (!WM.fitted && pts.length && WM.map.getContainer().clientWidth) {
+    /* a box that is hidden measures zero and a fit there binds a nonsense
+       view; the fold's hashchange ride refits the moment the box has width */
+    WM.map.fitBounds(pts, { paddingTopLeft: [24, 24],
+                            paddingBottomRight: [24, 24], maxZoom: 6 });
+    WM.fitted = true;
+  }
 }
 
 function wmSlot(text) {
@@ -987,9 +923,7 @@ function wmRender(crowd) {
   wmSlot(`the map: ${n} ${n === 1 ? "place" : "places"}, ${t} ${t === 1 ? "seat" : "seats"}`);
   WM.places = crowd.places;
   WM.unplaced = crowd.unplaced;
-  wmGeoWire();
-  wmApply();
-  if (!crowd.places.length) wmDetail("");
+  wmDraw();
 }
 
 async function wmLoad() {
@@ -1042,6 +976,20 @@ export function startWorldMap() {
       }
     });
   }
+  /* the fold that hides the map is display:none: a map born in a hidden fold
+     is born at zero size, and the router's class flip fires no window resize.
+     so when the router opens the fold the map must be told its box moved —
+     the ride is deferred a breath because startNav registers its own
+     hashchange after this one and the fold's class must land before the
+     check reads it. an unopened map stays quiet. */
+  window.addEventListener("hashchange", () => window.setTimeout(() => {
+    if (!WM.map) return;
+    const opened = document.querySelector('[data-view="worldmap"].is-view');
+    if (!opened) return;
+    WM.map.invalidateSize();
+    if (!WM.fitted && WM.places.length) wmDraw();
+  }, 0));
+
   return wmLoad();
 }
 
@@ -1172,6 +1120,25 @@ function dashSlot(text) {
 function dashSilence(sel, line, tag) {
   const el = document.querySelector(sel);
   if (el) el.innerHTML = `<${tag} class="dash__hush">${line}</${tag}>`;
+}
+
+export function startRun() {
+  /* the print is static by design; the one lane that can fail silently is
+     the frame itself — a refused embed never raises a visible error. so:
+     the load event clears the watch, and a slow rail says so. nothing here
+     reads *into* the game (cross-origin can't), and nothing awards points:
+     a score is an event to be earned later, not a client's promise. */
+  const frame = document.getElementById("pb-run-frame");
+  const down = document.getElementById("pb-run-down");
+  if (!frame || !down) return;
+  let answered = false;
+  const watch = window.setTimeout(() => {
+    if (!answered) down.hidden = false;
+  }, 9000);
+  frame.addEventListener("load", () => {
+    answered = true;
+    window.clearTimeout(watch);
+  });
 }
 
 export function startHomeDash() {
