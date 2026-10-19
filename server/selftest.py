@@ -2900,7 +2900,8 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
           and all(_k in uxjs for _k in ("/api/worldmap",
                                         "/api/account/location/remove",
                                         '"/api/account/location"'))
-          and ".wm__chips" in _cssB and ".wm__land" in _cssB
+          and ".wm__chips" in _cssB and ".wm__coast" in _cssB
+          and 'id="wm-land"' in _wjs
           and "box-shadow" not in _cssB.split("the world map:")[1],
           "the sheet's map drifted")
     _wdb.close()
@@ -3287,7 +3288,7 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
         def __init__(self, answer):
             self.answer = answer
 
-        def plan(self, brief, days_n):
+        def plan(self, brief, days_n, fallback=None):
             return self.answer
 
     _planT = {"objective": "the timeline posts again", "audience": "the board",
@@ -3646,12 +3647,14 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
           and len({_p["id"] for _p in _vposts}) == len(_vposts),
           str([_p["id"] for _p in _vposts[:3]]))
     check("P6V the writing left the scaffold: no caption wears the old"
-          " day-number costume, every caption and call came back non-empty"
-          " and normalised, and the week's captions are as many and as"
-          " distinct as its posts — the meme bank grew to seven so even the"
+          " day-number costume, every caption and note came back non-empty"
+          " and normalised and every call is either a call or a decided rest"
+          " (a string, never a hole), and the week's captions are as many and"
+          " as distinct as its posts — the meme bank grew to nine so even the"
           " punchline says each line once a week",
           all(not _re6.match(r"^Day [0-9]+ —", _p["caption"]) for _p in _vposts)
-          and all(_p["caption"] and _p["cta"] and _p["notes"] for _p in _vposts)
+          and all(_p["caption"] and _p["notes"] and isinstance(_p["cta"], str)
+                  for _p in _vposts)
           and len({_p["caption"] for _p in _vposts}) == len(_vposts),
           str(sorted({_p["caption"][:14] for _p in _vposts})[:5])[:140])
     check("P6V QC grew a second spine and kept its honour: text ok now"
@@ -3766,13 +3769,13 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
     _capsV = _stud.capabilities()
     check("P6V the door names its new shape out loud: the capabilities view"
           " still speaks the deterministic planner and the five cards it"
-          " actually keeps, the plan schema moved to"
-          " paper-studio-plan/2 on purpose — the plan genuinely changed and"
-          " the schema says so (this pin is deliberate, not drift) — and the"
-          " model's own brief now advertises the posts shape (a textual pin:"
-          " the live lane stays behind its key and the gate already reads"
-          " both vocabularies)",
-          _capsV["schema"] == "paper-studio-plan/2"
+          " actually keeps, the plan schema moved to paper-studio-plan/3 on"
+          " purpose — the plan genuinely changed (the brief grew its"
+          " framing: insight, promise, tone, action, success) and the schema"
+          " says so (this pin is deliberate, not drift) — and the model's own"
+          " brief now advertises the posts shape (a textual pin: the live lane"
+          " stays behind its key and the gate already reads both vocabularies)",
+          _capsV["schema"] == "paper-studio-plan/3"
           and _capsV["planner"] == "deterministic"
           and len(_capsV["types"]) == 5
           and "posts:[{id" in open(_stumod.__file__,
@@ -3903,6 +3906,180 @@ var _p6vVerdict = pvBad.length ? "P6V-FAILS " + pv.join(" ") : "P6V-scenarios-be
           and _twin6 == _pvExp
           and ((_pvEng is None) or ("P6V-scenarios-behave" in _pvOut)),
           (str(_pvOut)[-120:] if _pvOut else "twin")[:140])
+    # ---- P6W the creative desk, the real map, and the download door ------
+    from paperboard import places as _wPl
+    _wPlan = _stumod.deterministic_plan("p6w zeta the wider", "", 7,
+                                        _stumod._asset_specs(7, ["xpost", "meme",
+                                                                  "promo"], 36))
+    _stw = _wPlan
+    _w7 = _wPlan["days"][0]
+    _wSjs = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                              "studio.js"), encoding="utf-8").read()
+    _wLandSrc = open(os.path.join(os.path.dirname(__file__), "..", "js",
+                                  "world-land.js"), encoding="utf-8").read()
+    _wVc = json.loads(open(os.path.join(os.path.dirname(__file__), "..",
+                                        "vercel.json"), encoding="utf-8").read())
+    _wLandGj = json.loads(_re6.search(
+        r'\{"type": "MultiPolygon", "coordinates": (.*)\};\s*\Z',
+        _wLandSrc, _re6.DOTALL).group(1))
+    check("P6W the deterministic desk now thinks like a desk: three named"
+          " campaign platforms exist (each with insight, promise, tone,"
+          " action, success, and a five-line call bank whose fifth line is"
+          " the decision to rest), two differently-named campaigns of one"
+          " goal print different day-one lines, and a plan speaks every"
+          " framing word out loud — the brief reads like strategy and not"
+          " like a schema dump",
+          len(_stumod.CONCEPTS) == 3
+          and all(all(k in c and c[k] for k in ("name", "insight", "promise",
+                                                "tone", "action", "success"))
+                  and len(c["ctas"]) == 5 and "" in c["ctas"]
+                  for c in _stumod.CONCEPTS)
+          and _stumod.deterministic_plan("p6w alpha", "", 7,
+              _stumod._asset_specs(7, ["xpost", "meme", "promo"], 36))
+              ["days"][0]["posts"][0]["caption"]
+          != _stumod.deterministic_plan("p6w zeta the wider", "", 7,
+              _stumod._asset_specs(7, ["xpost", "meme", "promo"], 36))
+              ["days"][0]["posts"][0]["caption"]
+          and all(k in _stw for k in ("insight", "promise", "tone", "action",
+                                      "success", "mix")),
+          str(_stw.get("core_message"))[:80])
+    check("P6W the week's calls rest on purpose and the day still mirrors"
+          " its lead exactly: a resting call is an empty string (a decision,"
+          " never a missing key), at least one post in a full week rests, and"
+          " no day ever outspeaks its lead — the mirror is byte-for-byte",
+          _w7["cta"] == _w7["posts"][0]["cta"]
+          and all(_p.get("cta") is not None and isinstance(_p.get("cta"), str)
+                  for _d in _wPlan["days"] for _p in _d["posts"])
+          and any(_p["cta"] == "" for _d in _wPlan["days"] for _p in _d["posts"]),
+          str([(_d["day"], _d["cta"] == _d["posts"][0]["cta"])
+               for _d in _wPlan["days"]])[:120])
+    _wDup = json.loads(json.dumps(_wPlan))
+    _wDup["days"][0]["posts"][0]["kind"] = "meme"
+    _wDupV = _stumod._validate_plan(_wDup, 7)
+    check("P6W the shelf's law is policed at the gate: a spoken day that"
+          " names the same kind twice paints one card — the first post keeps"
+          " the media and the twin rides on as a plain text post, so no post"
+          " can ever silently steal another one's picture at the desk",
+          _wDupV is not None
+          and _wDupV["days"][0]["posts"][1].get("kind") is None,
+          str([(_p.get("kind"), _p["id"])
+               for _p in (_wDupV or {"days": [{}, {}]})["days"][0]["posts"]])[:140])
+    _wView, _ = _stud.create(dict(_mk, project="P6W", days=7,
+                                  types=["xpost", "meme", "promo"]))
+    _wCard = _wView["assets"][0]
+    _wHeadBefore = _wCard["text"]["head"]
+    _wRer2, _wVar, _ = _stud.regenerate(_wView["id"], _wCard["id"])
+    _wHeadAfter = next(_a for _a in _wRer2["assets"]
+                       if _a["id"] == _wCard["id"])["text"]["head"]
+    check("P6W a reroll genuinely turns the lane's page: the first reroll"
+          " re-inks the card with a different line (the old rotation was a"
+          " multiple of the pool's three lines and could reprint the same"
+          " sentence with a new file name), the variant moves, and nothing"
+          " else on the campaign is asked to move",
+          _wVar == _wCard["variant"] + 1 and _wHeadBefore != _wHeadAfter,
+          str([_wHeadBefore[:20], _wHeadAfter[:20]])[:80])
+    _wDoor = _sgo("GET", "/studio/assets/" + _wCard["file"],
+                   {"name": "p6w-week-day-01-post-01"})
+    _wDoorBad = _sgo("GET", "/studio/assets/" + _wCard["file"],
+                      {"name": "na me!/.."})
+    check("P6W the file door can speak a human name: a well-shaped ?name="
+          " rides out as a real attachment (a Content-Disposition whose"
+          " extension comes from the served bytes, never from the query) and"
+          " a name with shapes a filename can not wear is simply not worn"
+          " — the bytes and the walls answer exactly as before, no new door",
+          _wDoor[0] == 200 and isinstance(_wDoor[2], dict)
+          and 'attachment; filename="p6w-week-day-01-post-01.png"'
+              in _wDoor[2].values()
+          and _wDoor[2].get("Content-Type") == "image/png"
+          and isinstance(_wDoorBad[2], str) and _wDoorBad[2] == "image/png",
+          str(_wDoor[2])[:120])
+    check("P6W the download's root cause is answered in the repo's own"
+          " config: the page rewrites still stand and the assets path now"
+          " travels to the app too — /studio/assets/:path* asks the board's"
+          " own door for the bytes (before this, Vercel was asked for a file"
+          " it never had, and answered with its own not-found HTML), and the"
+          "#pb-world mount and every other route is untouched",
+          [ _r["source"] for _r in _wVc["rewrites"] ]
+              == ["/api/:path*", "/studio/assets/:path*", "/studio"]
+          and _wVc["rewrites"][1]["destination"]
+              == "https://api.seyruna.com/studio/assets/:path*",
+          str([_r["source"] for _r in _wVc["rewrites"]])[:120])
+    check("P6W the gazetteer answers the brief's own examples from its own"
+          " tables (no live lane, no key): USA alone lands on the country's"
+          " representative point as a country answer, Lawrence Kansas USA"
+          " lands on the city of Lawrence as a city answer, the twins of the"
+          " case forgive, an unknown country is refused a pin out loud, and"
+          " a known country with an unknown region settles for the region's"
+          " answer or the country's — never a fabricated exactness",
+          _wPl.locate("USA") == (39.8, -98.5, "country")
+          and _wPl.locate("USA", "Kansas", "Lawrence") == (38.97, -95.24, "city")
+          and _wPl.locate("uSa") == _wPl.locate("USA")
+          and _wPl.locate("Atlantis") is None
+          and _wPl.locate("USA", "Kansas")[2] == "region",
+          str([_wPl.locate("USA"), _wPl.locate("USA", "Kansas", "Lawrence")])[:110])
+    _wadb = dbmod.DB(":memory:", verbose=False)
+    _was = svc.Service(_wadb, None, stY2)
+    _wam = _Wm(_wadb, stY2)
+    _wa1 = _was.create_or_touch_account("p6wa@paperboard.test")[0]["id"]
+    _wa2 = _was.create_or_touch_account("p6wb@paperboard.test")[0]["id"]
+    _wa3 = _was.create_or_touch_account("p6wc@paperboard.test")[0]["id"]
+    _wa4 = _was.create_or_touch_account("p6wd@paperboard.test")[0]["id"]
+    _wam.set(_wa1, {"country": "USA", "region": "Kansas", "city": "Lawrence"})
+    _wam.set(_wa2, {"country": "usa", "region": "kansas", "city": "lawrence"})
+    _wam.set(_wa3, {"country": "USA"})
+    _wam.set(_wa4, {"country": "Atlantis"})
+    _wPub = _wam.public_view()
+    check("P6W the public face is aggregate-only in its new dress: the same"
+          " two countries and the total as ever, plus the placed points —"
+          " Lawrence counts as the two seats of ONE place, USA-alone is a"
+          " second place at the country's middle, Atlantis is unplaced and"
+          " counted as such, and the whole answer carries no account id,"
+          " no email, no word the feature did not send",
+          _wPub["total"] == 4 and _wPub["unplaced"] == 1
+          and len(_wPub["places"]) == 2
+          and _wPub["places"][0]["count"] == 2
+          and _wPub["places"][0]["precision"] == "city"
+          and _wPub["places"][1]["precision"] == "country"
+          and all(set(_p.keys()) == {"country", "region", "city", "count",
+                                     "lat", "lon", "precision"}
+                  for _p in _wPub["places"])
+          and "account" not in json.dumps(_wPub) and "@" not in json.dumps(_wPub),
+          str([( _p["country"], _p.get("city"), _p["count"], _p["precision"])
+               for _p in _wPub["places"]])[:140])
+    _wadb.close()
+    check("P6W the map on the page is the real world: the runtime imports"
+          " the vendored geometry, the coasts come from it (the land layer"
+          " exists in the markup and in the code that fills it), the"
+          " controls and the detail panel and the attribution are on the"
+          " page, and the shipped geometry is genuinely the world (over a"
+          " hundred polygons, Australia and Antarctica where a cartographer"
+          " puts them), and the counts stay aggregate words",
+          "WORLD_LAND" in uxjs and 'id="wm-map"' in _wjs
+          and "wm-land" in uxjs and "Natural Earth" in _wjs
+          and "data-wm-z" in _wjs and 'id="wm-detail"' in _wjs
+          and len(_wLandGj) > 100
+          and any(110 < _p[0] < 155 and -45 < _p[1] < -10
+                  for _q in _wLandGj for _r in _q for _p in _r)
+          and any(_p[1] < -60 for _q in _wLandGj for _r in _q for _p in _r),
+          str(len(_wLandGj))[:60])
+    check("P6W the desk shows the picture, says honestly how it is doing,"
+          " and keeps the shelf folded: every media figure carries the"
+          " zoom lane, the loading state, and the two real failure words;"
+          " the download lane asks the door by a human name (the ?name= word"
+          " and the download attribute ride the same stem); the shelf folds"
+          " as a details box; the old scaffold labels — 'the idea ·' and"
+          " 'get image' — are gone from the file; and the lightbox is a"
+          " dialog with an Escape at the ready",
+          all(_k in _wSjs for _k in ("data-lb", "st-lb", "is-load",
+                                     "is-ready", "is-failed", "?name=",
+                                     "download=", "st-shelfbox",
+                                     '<details class="st-shelfbox"'))
+          and "the idea ·" not in _wSjs and "get image" not in _wSjs
+          and "Escape" in _wSjs
+          and ".st-lb" in _cssV and ".st-media" in _cssV
+          and "box-shadow" not in _cssV and "gradient" not in _cssV,
+          str([_k for _k in ("data-lb", "is-load", "?name=")
+               if _k not in _wSjs])[:80])
     print("failures:", len(FAILURES))
     return len(FAILURES)
 

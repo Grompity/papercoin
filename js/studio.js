@@ -129,70 +129,145 @@ async function boot() {
   }
 }
 
+/* — the human face of the formats: a board reader reads "square", not "1:1" — */
+const ASPECT_WORDS = {
+  "16:9": "wide 16:9", "1:1": "square", "4:5": "portrait 4:5",
+  "3:1": "marquee 3:1", "8:5": "card 8:5", "as provided": "as sent",
+};
+
+/* — the lightbox: one dialog, built the first time a preview is asked — */
+function stLb() {
+  let lb = document.getElementById("st-lb");
+  if (!lb) {
+    lb = document.createElement("div");
+    lb.id = "st-lb";
+    lb.className = "st-lb";
+    lb.hidden = true;
+    lb.setAttribute("role", "dialog");
+    lb.setAttribute("aria-modal", "true");
+    lb.setAttribute("aria-label", "the image, large");
+    lb.innerHTML = `<div class="st-lb__box"><img alt=""><p class="st-lb__cap"></p></div>`
+      + `<button type="button" class="btn st-lb__x" aria-label="close the large image">close ✕</button>`;
+    (document.querySelector(".studio") || document.body).appendChild(lb);
+    lb.addEventListener("click", (e) => {
+      if (e.target === lb || e.target.closest?.(".st-lb__x")) lb.hidden = true;
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") lb.hidden = true;
+    });
+  }
+  return lb;
+}
+
+function stLbOpen(href, cap) {
+  const lb = stLb();
+  lb.querySelector("img").src = href;
+  lb.querySelector("img").alt = cap || "the campaign image";
+  lb.querySelector(".st-lb__cap").textContent = cap || "";
+  lb.hidden = false;
+}
+
 /* — the campaign painting — */
 function renderCampaign(c) {
   state.campaign = c;
   el.stage.textContent = "step five · review";
   const plan = c.plan || {};
   const qc = c.qc || {};
+  const days = plan.days || [];
   const kindInfo = {};
   ((state.caps && state.caps.types) || []).forEach((t) => { kindInfo[t.id] = t; });
   const byDay = {};
   (c.assets || []).forEach((a) => { (byDay[a.day] = byDay[a.day] || []).push(a); });
   const claimed = {};
+  const pad = (n) => String(n).padStart(2, "0");
+  const slug = c.slug || "campaign";
   const postsOf = (d) => (d.posts && d.posts.length ? d.posts : [{
-    id: "d" + String(d.day).padStart(2, "0") + "-p01", purpose: d.purpose,
+    id: "d" + pad(d.day) + "-p01", purpose: d.purpose,
     concept: d.concept, caption: d.caption, cta: d.cta, notes: "",
   }]);
-  const mediaOf = (p, day) => {
-    const pool = byDay[day] || [];
-    const a = p.kind ? pool.find((x) => x.kind === p.kind)
+
+  /* the post's own media: the right bytes, honestly labelled, large enough
+     to judge before anything is downloaded. a day's second post of the same
+     kind is the validator's business (one card per kind per day); the desk
+     simply asks for the kind it was promised and says text-only out loud. */
+  const mediaOf = (p, d) => {
+    const pool = byDay[d.day] || [];
+    const a = p.kind ? pool.find((x) => x.kind === p.kind && !claimed[x.id])
                      : pool.find((x) => !claimed[x.id]);
     if (!a) return `<span class="st-chip">text-only</span>`;
     claimed[a.id] = 1;
     if (a.status !== "ready" || !a.href)
-      return `<span class="st-chip">image ${esc(a.status)}</span>`
+      return `<span class="st-chip st-chip--state">image ${esc(a.status)}</span>`
         + (a.note ? ` <span class="st-card__note">${esc(a.note)}</span>` : "");
-    return `<div class="st-post__media">
-      <img src="${esc(a.href)}" alt="${esc(`${a.use} card for day ${day}`)}" loading="lazy">
-      <span class="st-post__meta">${a.width && a.height ? esc(`${a.width}×${a.height}`) : "—"} · PNG</span>
-      <a class="btn btn--ghost" href="${esc(a.href)}" download>get image</a>
-    </div>`;
+    const ext = a.href.slice(a.href.lastIndexOf(".") + 1) || "png";
+    const mm = pad(Number(String(p.id || "").slice(-2)) || 1);
+    const stem = `${slug}-day-${pad(d.day)}-post-${mm}`;
+    const info = p.kind && kindInfo[p.kind] ? kindInfo[p.kind] : null;
+    const fmt = info
+      ? `${info.use} · ${ASPECT_WORDS[info.aspect] || info.aspect}`
+      : (a.use || "");
+    return `<figure class="st-media is-load">
+      <button type="button" class="st-media__zoom" data-lb="${esc(a.href)}"
+        data-lb-cap="${esc(`${a.use} — day ${d.day} of ${c.name || "the campaign"}`)}"
+        aria-label="see the image large">
+        <img src="${esc(a.href)}" alt="${esc(`${a.use} card for day ${d.day}`)}" loading="lazy">
+      </button>
+      <figcaption class="st-media__meta"><span class="st-post__meta">${esc(fmt)}</span>
+        <span class="st-media__wait">the image is coming…</span></figcaption>
+      <div class="st-media__acts">
+        <a class="btn btn--ghost st-dl" href="${esc(`${a.href}?name=${stem}`)}"
+           download="${esc(`${stem}.${ext}`)}">download</a>
+      </div>
+    </figure>`;
   };
+
+  const postCard = (p, d) => {
+    const info = p.kind && kindInfo[p.kind] ? kindInfo[p.kind] : null;
+    return `
+      <article class="st-post">
+        <div class="st-post__top">
+          ${info ? `<b>${esc(info.use)}</b><span>${esc(ASPECT_WORDS[info.aspect] || info.aspect)}</span>`
+                 : `<span>text-only</span><span>${esc(p.purpose || "")}</span>`}
+        </div>
+        <p class="st-post__cap">${esc(p.caption || "")}</p>
+        <div class="st-post__row">
+          ${p.cta ? `<span class="st-day__cta">${esc(p.cta)}</span>`
+                  : `<span class="st-post__rest">no call today — the post stands on its own</span>`}
+          <button class="btn btn--pill st-copy" type="button"
+            data-copy-cap="${esc(p.caption || "")}" data-copy-cta="${esc(p.cta || "")}">copy</button>
+        </div>
+        ${mediaOf(p, d)}
+        ${p.concept ? `<p class="st-post__idea">${esc(p.concept)}${p.notes ? ` — ${esc(p.notes)}` : ""}</p>` : ""}
+      </article>`;
+  };
+
+  const dayHtml = (d) => `
+    <div class="st-day">
+      <div class="st-day__top"><b>day ${pad(d.day)}</b>
+        <span class="st-day__theme">${esc(d.theme || d.purpose || "")}</span>
+        <span>${esc(d.platform || "X")}</span></div>
+      ${d.why ? `<p class="st-day__why">${esc(d.why)}</p>` : ""}
+      <div class="st-posts">${postsOf(d).map((p) => postCard(p, d)).join("")}</div>
+    </div>`;
+
   const ovRow = (label, val) => (val
     ? `<div class="st-ov__row"><i>${esc(label)}</i><span>${esc(val)}</span></div>` : "");
   const overview = `
     <div class="st-ov">
-      <h3>${esc(c.name || "campaign")} · ${esc(String(qc.days || (plan.days || []).length))} days</h3>
-      ${ovRow("objective", plan.objective)}${ovRow("audience", plan.audience)}
-      ${ovRow("core message", plan.core_message)}${ovRow("strategy", plan.strategy)}
-      ${ovRow("outcome", plan.outcome)}${ovRow("the run", plan.arc)}
+      <h3>${esc(c.name || "campaign")} — ${esc(String(qc.days || days.length))} days, one run</h3>
+      ${ovRow("the concept", plan.core_message)}
+      ${ovRow("the tension", plan.insight)}
+      ${ovRow("the promise", plan.promise)}
+      ${ovRow("objective", plan.objective)}
+      ${ovRow("audience", plan.audience)}
+      ${ovRow("the tone", plan.tone)}
+      ${ovRow("what we ask", plan.action)}
+      ${ovRow("when it works", plan.success)}
+      ${ovRow("the mix", plan.mix)}
+      ${ovRow("strategy", plan.strategy)}
+      ${ovRow("outcome", plan.outcome)}
+      ${ovRow("the arc", plan.arc)}
     </div>`;
-  const days = (plan.days || []).map((d) => {
-    const posts = postsOf(d).map((p) => `
-      <article class="st-post">
-        <div class="st-post__top"><b>${esc(String(p.id || ""))}</b>
-          <span>${esc(p.purpose || "")}</span>
-          ${p.kind && kindInfo[p.kind] ? `<span>${esc(kindInfo[p.kind].use)} · ${esc(kindInfo[p.kind].aspect)}</span>` : ""}</div>
-        <p class="st-post__cap">${esc(p.caption || "")}</p>
-        <div class="st-post__row">
-          <span class="st-day__cta">${esc(p.cta || "")}</span>
-          <button class="btn btn--pill st-copy" type="button"
-            data-copy-cap="${esc(p.caption || "")}" data-copy-cta="${esc(p.cta || "")}">copy</button>
-        </div>
-        ${mediaOf(p, d.day)}
-        <p class="st-post__idea">the idea · ${esc(p.concept || d.concept || "")}${p.notes ? ` — note: ${esc(p.notes)}` : ""}</p>
-      </article>`).join("");
-    return `
-    <div class="st-day">
-      <div class="st-day__top"><b>day ${esc(String(d.day))}</b>
-        <b>${esc(d.theme || d.purpose || "")}</b>
-        <span>${esc(d.purpose || "")}</span><span>${esc(d.platform || "X")}</span>
-        <span>${esc(d.aspect || "")}</span></div>
-      ${d.why ? `<p class="st-day__why">${esc(d.why)}</p>` : ""}
-      <div class="st-day__concept">${esc(d.concept)}</div>
-      <div class="st-posts">${posts}</div>
-    </div>`; }).join("");
 
   const roles = (c.brand && c.brand.roles) || {};
   const swatch = (name) => roles[name]
@@ -201,31 +276,40 @@ function renderCampaign(c) {
     <div class="st-swatch">${["paper", "press", "accent"].map(swatch).join("")}</div>
     ${(c.brand?.notes || []).map((n) => `<p class="st-note">${esc(n)}</p>`).join("")}`;
 
-  const cards = (c.assets || []).map((a) => `
+  const slotOf = (a) => {
+    const d = days[a.day - 1];
+    if (!d || !d.posts || !d.posts.length || !a.kind) return null;
+    const i = d.posts.findIndex((p) => p.kind === a.kind);
+    return i < 0 ? null : pad(i + 1);
+  };
+  const cards = (c.assets || []).map((a) => {
+    const mm = slotOf(a);
+    return `
     <article class="st-card" data-asset="${esc(String(a.id))}">
       <img src="${esc(a.href || "")}" alt="${esc(`${a.use} card for day ${a.day}`)}" loading="lazy">
       <div class="st-card__meta">
-        <div class="st-card__name">${esc(a.href ? a.href.split("/").pop() : "no file")}</div>
-        <div class="st-card__use">day ${esc(String(a.day))} · ${esc(a.use)}</div>
+        <div class="st-card__name">day ${esc(pad(a.day))} · ${esc(a.use || "card")}${mm ? ` · post ${esc(mm)}` : ""}</div>
+        <div class="st-card__file">${esc(a.href ? a.href.split("/").pop() : "no file")}</div>
         <div class="st-card__dims">${a.width && a.height ? esc(`${a.width}×${a.height}`) : "—"} · PNG
           ${a.note ? ` · <span class="st-card__note">${esc(a.note)}</span>` : ""}</div>
       </div>
       <div class="st-card__row">
         <span class="st-state ${a.status === "ready" ? "" : "st-state--failed"}">${esc(a.status)}</span>
         <div class="st-card__acts">
-          ${a.href ? `<a class="btn btn--ghost" href="${esc(a.href)}" download>get</a>` : ""}
+          ${a.href && a.status === "ready"
+            ? `<a class="btn btn--ghost" href="${esc(`${a.href}?name=${slug}-day-${pad(a.day)}-card`)}" download>get</a>` : ""}
           ${a.kind === "ai_hero" ? "" : `<button class="btn btn--pill st-regen" type="button" data-regen="${esc(String(a.id))}">reroll</button>`}
         </div>
       </div>
-    </article>`).join("");
+    </article>`; }).join("");
 
   el.out.innerHTML = `
     <section class="panel st-sec">
-      <div class="panel__head"><h2>the plan · ${esc(String(qc.days || (plan.days || []).length))} days</h2>
+      <div class="panel__head"><h2>the campaign · ${esc(String(qc.days || days.length))} days</h2>
         <span class="st-stage">${esc(c.engine)}</span></div>
       <div class="panel__body">
         ${overview}
-        <div class="st-days">${days}</div>
+        <div class="st-days">${days.map(dayHtml).join("")}</div>
       </div>
     </section>
     <section class="panel st-sec">
@@ -237,12 +321,15 @@ function renderCampaign(c) {
       </div>
     </section>
     <section class="panel st-sec">
-      <div class="panel__head"><h2>the cards · ${esc(String(qc.assets_ready || 0))} of ${esc(String(qc.assets_total || 0))} ready</h2></div>
+      <div class="panel__head"><h2>the cards</h2>
+        <span class="st-stage">${esc(String(qc.assets_ready || 0))} of ${esc(String(qc.assets_total || 0))} ready</span></div>
       <div class="panel__body">
-        <div class="st-shelf">${cards || `<p class="st-hush">none shipped — the brief spoke, the pen did not.</p>`}</div>
+        <details class="st-shelfbox"><summary>the card shelf — ${esc(String((c.assets || []).length))} named files</summary>
+          <div class="st-shelf">${cards || `<p class="st-hush">none shipped — the brief spoke, the pen did not.</p>`}</div>
+        </details>
         <div class="st-acts">
-          <span class="st-qc">sizes from the written headers: <b>${esc(String(qc.sizes_verified || 0))}</b>
-            · concepts distinct: <b>${esc(String(qc.concepts_distinct || 0))}</b>/${esc(String(qc.days || 0))}</span>
+          <span class="st-qc">verified sizes: <b>${esc(String(qc.sizes_verified || 0))}</b>
+            · distinct concepts: <b>${esc(String(qc.concepts_distinct || 0))}</b>/${esc(String(qc.days || 0))}</span>
           <a class="btn btn--solid" href="/api/studio/export?id=${esc(String(c.id))}" download>campaign .zip</a>
         </div>
         ${(qc.notes || []).length ? `<p class="st-note">${esc(qc.notes.join(" · "))}</p>` : ""}
@@ -306,6 +393,8 @@ el.form.addEventListener("submit", runBrief);
 el.out.addEventListener("click", (ev) => {
   const btn = ev.target.closest?.("[data-regen]");
   if (btn) { reroll(btn.dataset.regen, btn); return; }
+  const zoom = ev.target.closest?.("[data-lb]");
+  if (zoom) { stLbOpen(zoom.dataset.lb, zoom.dataset.lbCap); return; }
   const cp = ev.target.closest?.("[data-copy-cap]");
   if (!cp) return;
   const txt = (cp.dataset.copyCap || "")
@@ -315,4 +404,19 @@ el.out.addEventListener("click", (ev) => {
                (m) => { cp.textContent = m; cp.dataset.st = "bad"; });
   setTimeout(() => { cp.textContent = prev; delete cp.dataset.st; }, 1500);
 });
+/* the image's own two honest states: it came, or it did not. load and error
+   do not bubble, so the desk listens in the catching phase and speaks to the
+   figure the image lives in. */
+el.out.addEventListener("load", (ev) => {
+  const f = ev.target.closest?.(".st-media");
+  if (f) { f.classList.remove("is-load"); f.classList.add("is-ready"); }
+}, true);
+el.out.addEventListener("error", (ev) => {
+  const f = ev.target.closest?.(".st-media");
+  if (!f) return;
+  f.classList.remove("is-load");
+  f.classList.add("is-failed");
+  const w = f.querySelector(".st-media__wait");
+  if (w) w.textContent = "the image did not come — reroll, or open the campaign .zip";
+}, true);
 boot();

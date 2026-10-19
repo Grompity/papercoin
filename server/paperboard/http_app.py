@@ -19,6 +19,9 @@ from .studio import Studio
 from .settings import SITE_DIR
 from .xapi import make_pkce, XError
 
+_MIME_EXT = {"image/png": "png", "image/jpeg": "jpg",
+             "image/gif": "gif", "image/webp": "webp"}
+
 _TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -108,9 +111,18 @@ class Router:
             # the studio's cards obey the same law as the wall's hangings:
             # one named door, the ledger's own name-shape is the wall, and a
             # stranger's path never reaches the disk to be argued with.
+            # a ?name= word (the desk's own human naming) rides out as a real
+            # download name — sanitised to a shape no quote or slash can hide
+            # in, with the extension taken from the served bytes' own type.
             got = self.stud.served(path[len("/studio/assets/"):])
             if got is None:
                 return 404, {"error": "file_absent"}
+            nm = query.get("name") or ""
+            if nm and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", nm):
+                return 200, got[0], {
+                    "Content-Type": got[1],
+                    "Content-Disposition": 'attachment; filename="%s.%s"'
+                                           % (nm, _MIME_EXT[got[1]])}
             return 200, got[0], got[1]
         if path == "/":
             return self._static("index.html")
@@ -277,8 +289,7 @@ class Router:
                 if not self._allow(f"worldmap:{ip}",
                                    rl["worldmapPerMinute"], 60):
                     return fail(429, "rate_limited")
-                return ok(countries=self.wm.aggregate(),
-                          total=self.wm.total())
+                return ok(**self.wm.public_view())
 
             if path == "/api/account/location":
                 # the member's own seat, for their own eyes: no aggregate

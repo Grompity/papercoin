@@ -10,6 +10,8 @@ shape belongs.
 
 import time
 
+from . import places
+
 
 class WorldMap:
     """the ledger of seats: set, drop, view, and the crowd's shape."""
@@ -21,6 +23,9 @@ class WorldMap:
         self.region_max = int(wm.get("regionMax", 60))
         self.city_max = int(wm.get("cityMax", 80))
         self.list_max = int(wm.get("listMax", 40))
+        # the free lane to the wider world (Nominatim, no key). opt-in: the
+        # shipped word is that unknown ground stays unplaced, not dialled.
+        self.geocode_live = bool(wm.get("geocodeLive", False))
 
     # -------------------------------------------------------------------- set
     def set(self, account_id, body, at=None):
@@ -75,6 +80,39 @@ class WorldMap:
             " GROUP BY country COLLATE NOCASE"
             " ORDER BY count DESC, country LIMIT ?", (lim,))
         return [{"country": r[0], "count": r[1]} for r in rows]
+
+    def places(self, limit=None):
+        """the crowd's shape in points: counts by the whole named triple
+        (country, region, city), each resolved to a defensible position by
+        the gazetteer. a place the tables do not know is not guessed — it is
+        counted unplaced, in the open, by seats."""
+        lim = self.list_max if limit is None else min(int(limit), self.list_max)
+        rows = self.db.conn.execute(
+            "SELECT MIN(country) AS country, MIN(region) AS region,"
+            " MIN(city) AS city, COUNT(*) AS count FROM member_locations"
+            " GROUP BY country COLLATE NOCASE, region COLLATE NOCASE,"
+            " city COLLATE NOCASE ORDER BY count DESC, country, region, city"
+            " LIMIT ?", (lim,))
+        out, unplaced = [], 0
+        for r in rows:
+            spot = places.locate(r["country"], r["region"], r["city"],
+                                 live=self.geocode_live)
+            if spot is None:
+                unplaced += r[3]
+                continue
+            out.append({"country": r[0], "region": r[1] or "",
+                        "city": r[2] or "", "count": r[3],
+                        "lat": spot[0], "lon": spot[1], "precision": spot[2]})
+        return out, unplaced
+
+    def public_view(self):
+        """the whole public face in one dict: the country counts, the seats
+        total, the placed points, and the seats that did not place. every key
+        is aggregate — an account id could not buy a ticket through any of
+        them."""
+        points, unplaced = self.places()
+        return {"countries": self.aggregate(), "total": self.total(),
+                "places": points, "unplaced": unplaced}
 
     def total(self):
         return self.db.conn.execute(

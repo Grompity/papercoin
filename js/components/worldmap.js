@@ -21,20 +21,25 @@ export function WorldMap() {
           never crosses the public door.
         </p>
 
-        <svg class="wm__map" viewBox="0 0 360 180" role="img"
-             aria-label="a small hand-drawn world, hairline continents on a grid" data-reveal>
+        <svg class="wm__map" id="wm-map" viewBox="0 0 360 180" role="img"
+             aria-labelledby="wm-title" data-reveal>
           <defs><pattern id="wm-grid" width="20" height="20" patternUnits="userSpaceOnUserSpace">
             <path d="M20 0 H0 V20" class="wm__grid" fill="none"/>
           </pattern></defs>
           <rect width="360" height="180" fill="url(#wm-grid)"/>
-          <path class="wm__land" d="M40 40 Q70 28 96 44 T120 70 Q108 96 84 104 L70 88 Q48 70 40 40 Z"/>
-          <path class="wm__land" d="M86 112 Q100 118 104 140 Q98 160 88 158 Q78 138 86 112 Z"/>
-          <path class="wm__land" d="M158 44 Q186 30 210 40 Q204 58 186 64 L168 70 Q154 58 158 44 Z"/>
-          <path class="wm__land" d="M178 78 Q198 76 204 98 Q198 126 184 132 Q170 110 178 78 Z"/>
-          <path class="wm__land" d="M224 46 Q276 34 312 52 Q322 72 300 84 L262 88 Q232 70 224 46 Z"/>
-          <path class="wm__land" d="M296 116 Q316 112 322 126 Q312 138 298 134 Q290 124 296 116 Z"/>
-          <line class="wm__grid" x1="0" y1="90" x2="360" y2="90"/>
+          <g id="wm-world">
+            <g id="wm-land"></g>
+            <line class="wm__grid" x1="0" y1="90" x2="360" y2="90"/>
+            <g id="wm-pins"></g>
+          </g>
         </svg>
+        <div class="wm__ctl" aria-label="map controls">
+          <button type="button" class="btn btn--sm" data-wm-z="in" aria-label="zoom in">+</button>
+          <button type="button" class="btn btn--sm" data-wm-z="out" aria-label="zoom out">−</button>
+          <button type="button" class="btn btn--sm" data-wm-z="reset">whole world</button>
+        </div>
+        <div class="wm__detail" id="wm-detail" hidden></div>
+        <p class="wm__attr">outline: Natural Earth, public domain, 1:110 m · counts are places, never people · drag to pan, wheel or double-click to zoom</p>
 
         <div id="pb-world" data-reveal><!-- the crowd's shape, injected by the app --></div>
 

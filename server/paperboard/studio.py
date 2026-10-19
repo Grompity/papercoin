@@ -52,14 +52,16 @@ WEEK = (
     dict(purpose="the hook", theme="Open the issue",
          why="the board needs a reason to look today: day one lays the claim",
          pool=(
-        "a new week of paper opens: the board is blank and the ink is wet",
-        "the fold that starts the run — PAPERBOARD opens its doors",
-        "issue zero-one: post paper, earn points, climb the front page")),
+        "the week opens blank and the ink is ready — paper something worth"
+        " framing",
+        "a new issue, the same open board: post it and the front page does"
+        " the rest",
+        "the board's day one stays empty until somebody prints it")),
     dict(purpose="the joke", theme="Show the joke",
          why="paper is fun before it is a product: the laugh is the door in",
          pool=(
         "a mascot who has seen the chart and kept the receipt",
-        "diamond hands, paper wallet",
+        "paper folds, but paper never rugs — that is the whole theology",
         "posting through the pain and calling it strategy")),
     dict(purpose="the feature", theme="Read the feature",
          why="the fun needs mechanics behind it, or it is only a poster",
@@ -94,11 +96,69 @@ WEEK = (
         "the front page closes and the next issue already opens",
         "one week of paper: what the board says, it says")),
 )
-CTAS = ("Follow @Papersol6", "Post PAPER. Earn points.", "Join PAPERBOARD.",
-        "Check the leaderboard.", "Submit your post.")
+# three campaign platforms — the desk's own points of view, each a whole way
+# to run a week. every claim here is the board's own and checkable: the server
+# reads, gates, and scores posts; the cut freezes on schedule; the arcade
+# names its own weeks; sign-in is an email. the cap, the hoodie, and the
+# sneakers belong to the masthead's face (public/paper-mascot.jpeg) — the
+# desk quotes its own brand and invents nothing.
+CONCEPTS = (
+    dict(name="every week needs a front page",
+         insight="the timeline forgets by tomorrow; a board that prints gives"
+                 " the week a shape you can point at",
+         promise="post your paper once and the front page does the"
+                 " remembering",
+         tone="the broadsheet — a newsroom with a dry grin",
+         action="put a post on the wall this week and watch it get printed",
+         success="an issue full by the weekend and a leaderboard people"
+                 " actually check",
+         ctas=("Print this week's paper.", "Join the front page.",
+               "Post paper, earn points.", "See who's on the board.", "")),
+    dict(name="the paper does not guess",
+         insight="every chart on the timeline asks to be believed; the board"
+                 " only prints what a server read, gated, and scored",
+         promise="points out of verified posts — receipts, not vibes",
+         tone="the ledger — honest paper, degen-friendly",
+         action="post it, watch it verified, keep the receipt",
+         success="a score anybody can audit and a cut that froze on time",
+         ctas=("Post paper, earn points.", "Read the receipts.",
+               "Follow @Papersol6", "Check the leaderboard.", "")),
+    dict(name="the face of paper, the hand of the crowd",
+         insight="a coin is a crowd with a face, and the notes in the snapback"
+                 " have been handing out one since day one",
+         promise="the poses are the masthead's own, the byline is yours,"
+                 " and the wall is open",
+         tone="internet-native and self-aware — the sneakers are on",
+         action="put your post on the wall and bring somebody with you",
+         success="a crowd that comes back to vote with posts, not just takes",
+         ctas=("Hang your paper on the wall.", "Join PAPERBOARD.",
+               "Post paper, earn points.", "Follow @Papersol6", "")),
+)
+
+# the other cards speak their own lines: an invite is an invite is not the
+# day's thesis with a phrase bolted onto it. one bank per painted kind, the
+# xpost rides the day's own idea, and the meme carries the punch below.
+KIND_TAKES = {
+    "promo": ("the wall is open — hang your paper on it",
+              "one post, one seat on the board",
+              "the issue has room and the week has rules",
+              "your byline, the front page, no ceremony",
+              "the pen is cheaper than the paint"),
+    "banner": ("the week, spelled out at full width",
+               "paper this week — read it big",
+               "a front page wider than the timeline",
+               "the fold, from edge to edge",
+               "one headline, no small print needed"),
+    "announce": ("the board is public and the byline is yours",
+                 "a week of posts, a week of points, one front page",
+                 "the call is out and the wall is waiting",
+                 "PAPERBOARD keeps an open board — put paper on it",
+                 "somebody's front page is missing a byline"),
+}
 MEME_PUNCH = ("no rug, only paper", "the byline holds", "receipts, not feelings",
               "one post, one point", "the board does not blink",
-              "the fold holds", "ink first, feelings later")
+              "the fold holds", "ink first, feelings later",
+              "posted, verified, framed", "paper outlasts the hot take")
 
 # why a post exists once the day is set: every card kind earns its place by
 # a job on the timeline — the post's purpose is the card's job, not the day's
@@ -552,7 +612,7 @@ def analyze_reference(raw):
 
 
 # ————————————————————————————————— the plan ———————————————————————————————————
-PLAN_SCHEMA = "paper-studio-plan/2"
+PLAN_SCHEMA = "paper-studio-plan/3"
 
 
 def _clean_txt(v, cap):
@@ -564,9 +624,24 @@ def _clean_txt(v, cap):
     return s
 
 
-def _validate_plan(plan, days_n):
+def _clean_opt(v, cap):
+    """the call-to-action's own gate: a post may answer with no call at all,
+    but the key must exist and the words must fit — an empty string is a
+    decision, an absent one is not an answer."""
+    if isinstance(v, bool) or not isinstance(v, str):
+        return None
+    s = " ".join(v.split())
+    if len(s) > cap:
+        return None
+    return s
+
+
+def _validate_plan(plan, days_n, brief=None):
     """the schema gate for model words — every field named, bounded, alive.
-    None means invalid: the deterministic voice takes the shift."""
+    None means invalid: the deterministic voice takes the shift. the brief's
+    optional half (insight, promise, tone, action, success, mix) is taken when
+    spoken and filled from the fallback when not — a model that answers the
+    days but not the framing still keeps the desk's own framing."""
     if not isinstance(plan, dict):
         return None
     fields = {}
@@ -575,6 +650,13 @@ def _validate_plan(plan, days_n):
         if val is None:
             return None
         fields[key] = val
+    for key, cap in (("insight", 220), ("promise", 200), ("tone", 90),
+                     ("action", 130), ("success", 170), ("mix", 120)):
+        if plan.get(key) is not None:
+            val = _clean_txt(plan[key], cap)
+            if val is None:
+                return None
+            fields[key] = val
     days = plan.get("days")
     if not isinstance(days, list) or len(days) != days_n:
         return None
@@ -585,11 +667,15 @@ def _validate_plan(plan, days_n):
             return None
         row = {"day": n, "platform": "X"}
         for key, cap in (("purpose", 40), ("concept", 160), ("caption", 280),
-                         ("cta", 80), ("visual", 160)):
+                         ("visual", 160)):
             val = _clean_txt(d.get(key), cap)
             if val is None:
                 return None
             row[key] = val
+        val = _clean_opt(d.get("cta"), 80)      # a day may rest its call
+        if val is None:
+            return None
+        row["cta"] = val
         for key, lim in (("theme", 80), ("why", 240)):
             if d.get(key) is not None:
                 val = _clean_txt(d[key], lim)
@@ -613,11 +699,15 @@ def _validate_plan(plan, days_n):
                     return None               # ids ride position, never fancy
                 post = {"id": one["id"]}
                 for key2, lim2 in (("purpose", 40), ("concept", 160),
-                                   ("caption", 280), ("cta", 80)):
+                                   ("caption", 280)):
                     val = _clean_txt(one.get(key2), lim2)
                     if val is None:
                         return None
                     post[key2] = val
+                val = _clean_opt(one.get("cta"), 80)   # a call may rest here too
+                if val is None:
+                    return None
+                post["cta"] = val
                 note = one.get("notes") or ""
                 val = _clean_txt(note, 160) if note else ""
                 if val is None:
@@ -626,6 +716,14 @@ def _validate_plan(plan, days_n):
                 if one.get("kind") in DAY_KINDS:
                     post["kind"] = one["kind"]  # media association is optional
                 posts.append(post)
+            seen = set()                   # one card per kind per day is the
+            for post in posts:             # shelf's law: a spoken day naming
+                if "kind" not in post:     # the same kind twice keeps the
+                    continue               # first and lets the twin ride as
+                if post["kind"] in seen:   # a plain text post, not a stolen
+                    del post["kind"]       # picture
+                else:
+                    seen.add(post["kind"])
             head = posts[0]
             if (head["caption"], head["cta"], head["concept"]) != (
                     row["caption"], row["cta"], row["concept"]):
@@ -636,6 +734,8 @@ def _validate_plan(plan, days_n):
     if len(set(concepts)) != len(concepts):
         return None                      # no seven variations of one joke
     fields["days"] = out
+    for key, val in (brief or {}).items():
+        fields.setdefault(key, val)
     return fields
 
 
@@ -654,18 +754,24 @@ class LlmPlanner:
     def configured(self):
         return bool(self.base and self.key)
 
-    def plan(self, brief, days_n):
+    def plan(self, brief, days_n, fallback=None):
         if not self.configured:
             return None
         system = ("Reply with JSON only, no prose, shaped exactly like: "
-                  "{objective, audience, core_message, days:[{day, purpose, "
-                  "concept, caption, cta, visual, posts:[{id, purpose, "
-                  "concept, caption, cta}]}]}. %d days, day numbers 1..%d, "
-                  "one distinct purpose per day, no concept repeated; posts "
-                  "may ride empty or absent (the day then speaks one post of "
-                  "its own), their ids ride position (d01-p01, d01-p02), and "
-                  "the day's own concept/caption/cta must repeat the first "
-                  "post's." % (days_n, days_n))
+                  "{objective, audience, core_message, insight, promise, "
+                  "tone, action, success, days:[{day, purpose, concept, "
+                  "caption, cta, visual, posts:[{id, purpose, concept, "
+                  "caption, cta}]}]}. %d days, day numbers 1..%d, one "
+                  "distinct purpose per day, no concept repeated; a cta may "
+                  "be an empty string where a day wants no call; posts may "
+                  "ride empty or absent (the day then speaks one post of its "
+                  "own), their ids ride position (d01-p01, d01-p02), a post "
+                  "may name a card kind (xpost, meme, promo, banner, "
+                  "announce) and a day that names one kind twice paints one "
+                  "card, and the day's own concept/caption/cta must repeat "
+                  "the first post's. Speak publishable copy: no ids, no "
+                  "day-numbers inside a caption."
+                  % (days_n, days_n))
         user = json.dumps(dict(brief, days=days_n), ensure_ascii=False)
         body = json.dumps({"model": self.model, "temperature": 0.4,
                            "messages": [{"role": "system", "content": system},
@@ -682,7 +788,7 @@ class LlmPlanner:
         except (urllib.error.URLError, OSError, ValueError, KeyError,
                 IndexError, TypeError):
             return "unreachable"
-        return _validate_plan(spoken, days_n) or "rejected"
+        return _validate_plan(spoken, days_n, fallback) or "rejected"
 
 
 def _strip_fences(content):
@@ -692,50 +798,76 @@ def _strip_fences(content):
     return s.strip()
 
 
+def _concept_index(name):
+    """the deterministic pick of a platform: stable for one campaign's name,
+    varied across names — two campaigns of one goal do not print one
+    another's words, and one campaign does not change its voice mid-week."""
+    return sum(bytearray((name or "").encode("utf-8", "ignore"))) % len(CONCEPTS)
+
+
+_BRIEF_KEYS = ("insight", "core_message", "promise", "tone", "action",
+               "success", "mix")
+
+
+def _brief_fields(plan):
+    """the overview half of a plan — the framing the fallback gate hands a
+    spoken answer that wrote the days but not the dressing."""
+    return {k: plan[k] for k in _BRIEF_KEYS if k in plan}
+
+
 def deterministic_plan(name, goals, days_n, specs=None):
     """the reliable voice: a distinct purpose each day, a distinct concept
-    per day, and a post for every card the day will actually wear. copy is
-    written per kind (the meme post carries the punchline, the promo post
-    carries the invite), so the week reads as one campaign and not as seven
-    posters, and it claims nothing the board can not verify."""
+    per day, and a post for every card the day will actually wear. a platform
+    out of three rides the campaign's own name, each lane's page is turned by
+    the concept and the lap, and every card kind speaks its own bank — an
+    invite is not a thesis with a phrase bolted on. a call to action lands
+    where the week's own rotation puts it and rests (an empty string) where
+    it does not, and nothing here claims what the board can not show."""
+    voice = CONCEPTS[_concept_index(name)]
     week_len = len(WEEK)
     days = []
     for n in range(1, days_n + 1):
         lane = WEEK[(n - 1) % week_len]
         lap = (n - 1) // week_len
-        # a lap turns the lane's page: day eight must not print day one's
-        # sentence (the pool's lines are three, so +lap always shifts).
-        concept = lane["pool"][(n - 1 + lap) % len(lane["pool"])]
+        # a lap turns the lane's page and the platform chooses the line of
+        # it: day eight never prints day one's sentence, and two campaigns do
+        # not print the same one (the pools are three lines, so every offset
+        # genuinely shifts).
+        idea = lane["pool"][(n - 1 + lap + _concept_index(name))
+                            % len(lane["pool"])]
         take = "" if lap == 0 else ", take %d" % (lap + 1)
         posts = []
         for j, kind in enumerate((specs or {}).get(n) or []):
             if kind == "xpost":
-                cap = concept
+                cap = idea                          # the day's own idea leads
             elif kind == "meme":
                 cap = MEME_PUNCH[(n - 1 + j) % len(MEME_PUNCH)]
-            elif kind == "promo":
-                cap = "%s — the invite stands" % concept
-            elif kind == "banner":
-                cap = "%s — read it big" % concept
             else:
-                cap = "%s — the community is invited" % concept
+                bank = KIND_TAKES[kind]
+                cap = bank[(n - 1 + j) % len(bank)]
             posts.append({
                 "id": "d%02d-p%02d" % (n, j + 1), "kind": kind,
                 "purpose": XROLE.get(kind, "the day's post"),
-                "concept": concept, "caption": cap,
-                "cta": CTAS[(n - 1 + j) % len(CTAS)],
+                "concept": idea, "caption": cap,
+                "cta": voice["ctas"][(n - 1 + j) % len(voice["ctas"])],
                 "notes": "for the %s card: the idea wears the art,"
                          " the copy stands on its own"
                          % ASSET_TYPES[kind]["use"].lower()})
         lead = posts[0] if posts else None
+        # the day mirrors its lead post exactly — an empty call is the lead's
+        # decision, not an absence of one, so the mirror reads the key, not
+        # its truthiness (only when the day has no posts at all does the
+        # bank's rotation carry the day alone).
+        day_cta = (lead or {}).get("cta")
         days.append({"day": n, "platform": "X",
                      "purpose": (lane["purpose"] if lap == 0
                                  else "%s, take %d" % (lane["purpose"], lap + 1)),
                      "theme": "%s%s" % (lane["theme"], take),
                      "why": lane["why"],
-                     "concept": concept,
-                     "caption": (lead or {}).get("caption") or concept,
-                     "cta": (lead or {}).get("cta") or CTAS[(n - 1) % len(CTAS)],
+                     "concept": idea,
+                     "caption": (lead or {}).get("caption") or idea,
+                     "cta": day_cta if day_cta is not None
+                            else voice["ctas"][n % len(voice["ctas"])],
                      "visual": "%s wears the day (the pose follows the purpose)"
                                % lane["purpose"],
                      "posts": posts})
@@ -743,15 +875,30 @@ def deterministic_plan(name, goals, days_n, specs=None):
     arc = ", ".join(d["theme"] for d in days[:week_len])
     if days_n > week_len:
         arc += " — then the laps run the same road"
+    asked = (specs or {}).get(1) or []
+    even = bool(asked) and all(sorted(v) == sorted(asked)
+                               for v in (specs or {}).values())
+    if even:
+        mix = "each day wears: " + ", ".join(
+            ASSET_TYPES[k]["use"] for k in asked)
+    elif asked:
+        mix = "one kind a day, rotating across the week"
+    else:
+        mix = "the cards follow the brief"
     return {"objective": objective or ("%s needs the timeline posting, "
                                         "playing, and coming back" % name)[:140],
             "audience": "the X timeline and the PAPERBOARD board",
-            "core_message": "%s — post paper, earn points, climb the front page" % name,
-            "strategy": ("one idea a day, and a card that wears the idea:"
-                         " the week runs a purpose each day, and every post"
-                         " reads on its own"),
+            "insight": voice["insight"],
+            "core_message": voice["name"],
+            "promise": voice["promise"],
+            "tone": voice["tone"],
+            "action": voice["action"],
+            "success": voice["success"],
+            "strategy": ("one idea a day, one card to wear it, and a call to"
+                         " action only where the week earns one"),
             "outcome": "%d days that read as one campaign, not %d separate"
                        " posters — and the board noticing" % (days_n, days_n),
+            "mix": mix,
             "arc": arc[:300],
             "days": days}
 
@@ -935,11 +1082,12 @@ class Studio:
         except StudioError as e:
             return None, e.reason
         specs = _asset_specs(days, types, self.max_assets)
+        det = deterministic_plan(name, goals, days, specs)
         engine, plan = "deterministic", None
         if self.llm.configured:
             spoken = self.llm.plan({"project": name, "brief": brief,
                                     "goals": goals, "directives": directives},
-                                   days)
+                                   days, _brief_fields(det))
             if isinstance(spoken, dict):
                 plan, engine = spoken, self.llm.model
             elif spoken == "rejected":
@@ -947,7 +1095,7 @@ class Studio:
             elif spoken == "unreachable":
                 engine = "deterministic (model unreachable)"
         if plan is None:
-            plan = deterministic_plan(name, goals, days, specs)
+            plan = det
         t = time.time()
         cur = self.db.conn.execute(
             "INSERT INTO studio_campaigns(name,slug,brief_json,brand_json,"
@@ -1207,8 +1355,10 @@ class Studio:
                 failed += 1
         concepts = [d["concept"] for d in plan["days"]]
         posts = [p for d in plan["days"] for p in _day_posts(d)]
-        text_ok = all(_clean_txt(p.get("caption"), 400) and
-                       _clean_txt(p.get("cta"), 100) for p in posts)
+        # a caption must speak; a call to action may rest (an empty string is
+        # the voice's own decision, a missing one is a hole in the work).
+        text_ok = all(_clean_txt(p.get("caption"), 400) is not None
+                      and isinstance(p.get("cta"), str) for p in posts)
         return {"assets_total": total, "assets_ready": ready,
                 "assets_failed": failed, "sizes_verified": dim_ok,
                 "days": len(plan["days"]),
@@ -1218,7 +1368,8 @@ class Studio:
                 "text_ok": bool(text_ok),
                 "notes": ([hero_note] if hero_note else [])
                          + ([] if text_ok else
-                            ["a caption or a call to action came back empty"])}
+                            ["a caption came back empty or a call went"
+                             " missing"])}
 
     # -------------------------------------------------------------------- read
     def _assets(self, cid):
@@ -1284,7 +1435,12 @@ class Studio:
         drow = dict(plan["days"][a["day"] - 1])
         lane = WEEK[(a["day"] - 1) % len(WEEK)]
         new_var = a["variant"] + 1
-        drow["concept"] = lane["pool"][(a["day"] - 1 + 3 * new_var)
+        # the same rotation the plan used, advanced by the variant: a reroll
+        # must genuinely turn the lane's page (a multiple of the pool's three
+        # lines would not turn it at all).
+        drow["concept"] = lane["pool"][(a["day"] - 1
+                                        + (a["day"] - 1) // len(WEEK)
+                                        + _concept_index(c["name"]) + new_var)
                                        % len(lane["pool"])]
         drow["caption"] = drow["concept"]   # a reroll prints the idea plain,
                                             # no day-number scaffold
@@ -1374,8 +1530,9 @@ class Studio:
                                 ("\n(note: %s)\n" % post["notes"])
                                 if post.get("notes") else ""))
                     put("copy/day-%02d/post-%02d.txt" % (d["day"], p),
-                        ("%s\n\n%s\n"
-                         % (post["caption"], post["cta"])).encode())
+                        ("%s\n" % post["caption"]
+                         + ("\n\n%s\n" % post["cta"]
+                            if post["cta"] else "")).encode())
                     plines.append("%d,%s,%s,%s,%s,%s,%s,%s,%s" % (
                         d["day"], _csv(post.get("id") or ""),
                         post.get("kind") or "",

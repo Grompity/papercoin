@@ -387,10 +387,42 @@
 /* — the world map: where the paper comes from (feature two) —
    stroke over fill, tabular chips, and the press-sheet vow holds. */
 .worldmap { background: var(--ink) }
-.wm__map { display: block; width: min(560px, 100%); margin: var(--sp-2) auto;
-  border: 1px solid var(--line) }
+.wm__map { display: block; width: min(760px, 100%); margin: var(--sp-2) auto;
+  border: 1px solid var(--line); touch-action: pan-y; cursor: grab; user-select: none }
+.wm__map.is-drag { cursor: grabbing }
 .wm__grid { stroke: var(--line); stroke-width: .5; fill: none }
-.wm__land { fill: none; stroke: var(--line-2); stroke-width: 1.5 }
+.wm__coast { fill: none; stroke: var(--line-2); stroke-width: .8;
+  vector-effect: non-scaling-stroke }
+.wm__pin { cursor: pointer }
+.wm__dot { fill: var(--green) }
+.wm__pin--cluster .wm__dot { fill: var(--gold) }
+.wm__halo { fill: var(--green); fill-opacity: .18 }
+.wm__pin--cluster .wm__halo { fill: var(--gold); fill-opacity: .16 }
+.wm__count { fill: var(--cream); font-family: var(--mono);
+  paint-order: stroke; stroke: var(--ink); stroke-width: .4 }
+.wm__ctl { display: flex; gap: var(--sp-2); justify-content: center;
+  margin-bottom: var(--sp-2) }
+.wm__ctl button { font-family: var(--mono); font-size: .66rem;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--cream-dim);
+  background: none; border: 1px solid var(--line); padding: .35em .8em;
+  cursor: pointer }
+.wm__ctl button:hover { color: var(--cream); border-color: var(--line-2) }
+.wm__detail { max-width: 34rem; margin: 0 auto var(--sp-2);
+  border: 1px solid var(--line-2); padding: var(--sp-1) var(--sp-2) }
+.wm__detail-word { font-family: var(--serif); font-weight: 700;
+  margin: 0 0 .2em }
+.wm__detail-count { font-family: var(--mono); font-size: .68rem;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--cream-dim);
+  margin: 0 0 .35em; font-variant-numeric: tabular-nums }
+.wm__detail-x { font-family: var(--mono); font-size: .62rem;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--cream-faint);
+  cursor: pointer; margin: 0 }
+.wm__detail-x:hover { color: var(--cream) }
+.wm__attr { font-family: var(--mono); font-size: .6rem; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--cream-faint); text-align: center;
+  margin: 0 0 var(--sp-2) }
+.wm__bare { font-family: var(--mono); font-size: .64rem; color: var(--cream-faint);
+  letter-spacing: .1em; margin: var(--sp-1) 0 0 }
 .wm__chips { display: flex; flex-wrap: wrap; gap: var(--sp-1) .9rem;
   border-top: 1px solid var(--line); padding-top: var(--sp-2) }
 .wm__chip { font-family: var(--mono); font-size: .66rem; letter-spacing: .14em;
@@ -400,6 +432,7 @@
 .wm__seat-doors { display: flex; gap: var(--sp-2); flex-wrap: wrap }
 @media (width ≤ 720px) {
   .wm__map { width: 100% }
+  .wm__ctl { flex-wrap: wrap }
 }
 
 /* — the arcade: the games floor (feature three) —

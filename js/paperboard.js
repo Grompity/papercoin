@@ -8,6 +8,7 @@
    ============================================================ */
 
 import { CONFIG } from "./config.js";
+import { WORLD_LAND } from "./world-land.js";
 
 const API = (p) => (CONFIG.board.base || "") + p;
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -747,8 +748,12 @@ export function startArtboard() {
 
 /* ============================================================
    worldmap — where the paper comes from (feature two). the public
-   face is two words per country (country, count); this corner draws
-   the crowd's shape and lets a member set or drop their own seat.
+   face is aggregate only: counts by place over the real world
+   (js/world-land.js, Natural Earth at rest). this corner drives the
+   map — coastlines drawn once, one pin per resolved place, nearby
+   pins joining hands at low zoom, pan by hand and zoom by wheel —
+   and it lets a member set or drop their own seat. the counts are
+   places, never people; no account id ever crosses the door.
    ============================================================ */
 
 const WM_KEYS = {
@@ -761,6 +766,186 @@ const WM_KEYS = {
   location_rate_limited: "the map is patient — a few seat changes per ten minutes",
 };
 
+/* — the map's own state: one view transform, one place list — */
+const WM = { k: 1, tx: 0, ty: 0, places: [], clusters: [], unplaced: 0,
+             wired: false, land: null };
+
+const wmSvg = () => document.getElementById("wm-map");
+
+function wmProject(p) {                         /* degrees → the 360×180 room */
+  return [p[0] + 180, 90 - p[1]];
+}
+
+function wmLandPath() {                         /* the coasts, computed once */
+  if (WM.land) return WM.land;
+  const parts = [];
+  for (const poly of WORLD_LAND.coordinates) {
+    for (const ring of poly) {
+      let d = "";
+      for (let i = 0; i < ring.length; i++) {
+        const [x, y] = wmProject(ring[i]);
+        d += (i ? "L" : "M") + (x < 0 ? 0 : x > 360 ? 360 : x).toFixed(1)
+           + " " + y.toFixed(1);
+      }
+      parts.push(d + "Z");
+    }
+  }
+  WM.land = parts.join("");
+  return WM.land;
+}
+
+function wmClamp() {
+  WM.k = Math.min(Math.max(WM.k, 1), 12);
+  WM.tx = Math.min(Math.max(WM.tx, (1 - WM.k) * 360), 0);
+  WM.ty = Math.min(Math.max(WM.ty, (1 - WM.k) * 180), 0);
+}
+
+function wmClusters() {
+  /* nearby pins join hands at low zoom: a cell is ~34 px of the drawn map,
+     so what merges depends on the reader's own eye and the current zoom. */
+  const svg = wmSvg();
+  if (!svg) return [];
+  const pxPerUnit = (svg.getBoundingClientRect().width || 720) / 360 * WM.k;
+  const cell = 34 / pxPerUnit;
+  const bins = new Map();
+  for (const p of WM.places) {
+    const [x, y] = wmProject([p.lon, p.lat]);
+    const key = Math.floor(x / cell) + "_" + Math.floor(y / cell);
+    const bin = bins.get(key);
+    if (!bin) bins.set(key, { lon: p.lon * p.count, lat: p.lat * p.count,
+                              count: p.count, member: p, n: 1 });
+    else {
+      bin.lon += p.lon * p.count; bin.lat += p.lat * p.count;
+      bin.count += p.count; bin.n += 1;
+    }
+  }
+  return [...bins.values()].map((b) => ({
+    lon: b.lon / b.count, lat: b.lat / b.count, count: b.count,
+    n: b.n, top: b.member,
+  }));
+}
+
+function wmWords(p) {
+  const bits = [p.city, p.region, p.country].filter(Boolean);
+  return bits.length ? bits.join(", ") : "somewhere";
+}
+
+function wmPins() {
+  const pins = document.getElementById("wm-pins");
+  if (!pins) return;
+  WM.clusters = wmClusters();
+  pins.innerHTML = WM.clusters.map((c, i) => {
+    const [x, y] = wmProject([c.lon, c.lat]);
+    const r = Math.min(6, 1.8 + Math.sqrt(c.count)) / WM.k;
+    const f = Math.max(0.5, 4 / WM.k);
+    return `<g class="wm__pin${c.n > 1 ? " wm__pin--cluster" : ""}" data-wm="${i}"
+      role="button" tabindex="0" aria-label="${artEsc(wmWords(c.top))}${c.n > 1 ? ` and ${c.n - 1} nearer places` : ""} — ${c.count} ${c.count === 1 ? "seat" : "seats"}">
+      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(r * 2.6).toFixed(1)}" class="wm__halo"/>
+      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(2)}" class="wm__dot"/>
+      ${c.count > 1 ? `<text x="${x.toFixed(1)}" y="${(y - r * 3.2).toFixed(1)}"
+        font-size="${(f * 1.9).toFixed(2)}" text-anchor="middle" class="wm__count">${c.count}</text>` : ""}
+    </g>`;
+  }).join("");
+}
+
+function wmApply() {
+  const g = document.getElementById("wm-world");
+  if (g) g.setAttribute("transform",
+    `translate(${WM.tx.toFixed(2)} ${WM.ty.toFixed(2)}) scale(${WM.k.toFixed(3)})`);
+  wmPins();
+  const ctl = document.querySelector(".wm__ctl");
+  if (ctl) ctl.dataset.at = WM.k > 1 ? "zoomed" : "the whole world";
+}
+
+function wmZoom(factor, u, v) {
+  const k0 = WM.k;
+  WM.k *= factor;
+  wmClamp();
+  WM.tx = u - (u - WM.tx) * (WM.k / k0);
+  WM.ty = v - (v - WM.ty) * (WM.k / k0);
+  wmClamp();
+  wmApply();
+}
+
+function wmUnitPoint(evt) {                     /* pointer → the 360×180 room */
+  const r = wmSvg().getBoundingClientRect();
+  return [(evt.clientX - r.left) / r.width * 360,
+          (evt.clientY - r.top) / r.height * 180];
+}
+
+function wmDetail(html) {
+  const box = document.getElementById("wm-detail");
+  if (!box) return;
+  box.innerHTML = html || "";
+  box.hidden = !html;
+  box.onclick = (e) => { if (e.target.closest?.("[data-wm-close]")) wmDetail(""); };
+}
+
+function wmPick(i) {
+  const c = WM.clusters[i];
+  if (!c) return;
+  const named = c.top;
+  const at = named.precision === "city" ? ""
+    : named.precision === "region" ? " — at the region's middle"
+    : named.precision === "country" ? " — at the country's middle" : "";
+  const extra = c.n > 1 ? ` · ${c.n} places one cell` : "";
+  wmDetail(`<p class="wm__detail-word">${artEsc(wmWords(named))}${at}</p>`
+    + `<p class="wm__detail-count">${c.count} ${c.count === 1 ? "seat" : "seats"}${extra}</p>`
+    + `<p class="wm__detail-x" data-wm-close role="button" tabindex="0">close ✕</p>`);
+}
+
+function wmGeoWire() {
+  const svg = wmSvg();
+  if (!svg || WM.wired) return;
+  WM.wired = true;
+  const land = document.getElementById("wm-land");
+  if (land) land.innerHTML = `<path class="wm__coast" d="${wmLandPath()}"/>`;
+  svg.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const [u, v] = wmUnitPoint(e);
+    wmZoom(e.deltaY < 0 ? 1.25 : 1 / 1.25, u, v);
+  }, { passive: false });
+  svg.addEventListener("dblclick", (e) => {
+    const [u, v] = wmUnitPoint(e);
+    wmZoom(1.6, u, v);
+  });
+  let drag = null;
+  svg.addEventListener("pointerdown", (e) => {
+    drag = [e.clientX, e.clientY];
+    svg.classList.add("is-drag");
+  });
+  svg.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const r = svg.getBoundingClientRect();
+    WM.tx += (e.clientX - drag[0]) / r.width * 360;
+    WM.ty += (e.clientY - drag[1]) / r.height * 180;
+    drag = [e.clientX, e.clientY];
+    wmClamp();
+    wmApply();
+  });
+  const end = () => { drag = null; svg.classList.remove("is-drag"); };
+  svg.addEventListener("pointerup", end);
+  svg.addEventListener("pointercancel", end);
+  svg.addEventListener("click", (e) => {
+    const pin = e.target.closest?.("[data-wm]");
+    if (pin) wmPick(Number(pin.dataset.wm));
+  });
+  svg.addEventListener("keydown", (e) => {   /* pins are role=button: they owe the keyboard */
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const pin = e.target.closest?.("[data-wm]");
+    if (pin) { wmPick(Number(pin.dataset.wm)); e.preventDefault(); }
+  });
+  const ctl = document.querySelector(".wm__ctl");
+  if (ctl) ctl.addEventListener("click", (e) => {
+    const b = e.target.closest?.("button[data-wm-z]");
+    if (!b) return;
+    const z = b.dataset.wmZ;
+    if (z === "in") wmZoom(1.5, 180, 90);
+    else if (z === "out") wmZoom(1 / 1.5, 180, 90);
+    else { WM.k = 1; WM.tx = 0; WM.ty = 0; wmClamp(); wmApply(); wmDetail(""); }
+  });
+}
+
 function wmSlot(text) {
   const el = document.querySelector('[data-set="wm-state"]');
   if (el) el.textContent = text;
@@ -768,7 +953,8 @@ function wmSlot(text) {
 
 async function wmCrowd() {
   const j = await get("/api/worldmap");
-  return { countries: j.countries ?? [], total: j.total ?? 0 };
+  return { countries: j.countries ?? [], total: j.total ?? 0,
+           places: j.places ?? [], unplaced: j.unplaced ?? 0 };
 }
 
 async function wmSeat() {                    /* a seat, none, or the door */
@@ -789,11 +975,21 @@ function wmRender(crowd) {
   } else {
     mount.innerHTML = `<div class="wm__chips">${crowd.countries.map((c) =>
       `<span class="wm__chip">${artEsc(c.country)} <b>${c.count}</b></span>`
-    ).join("")}</div>`;
+    ).join("")}</div>`
+    + (crowd.unplaced
+       ? `<p class="wm__bare">and ${crowd.unplaced} ${crowd.unplaced === 1
+          ? "seat sits" : "seats sit"} where the map can not place the words"
+          — no invented pin.</p>`
+       : "");
   }
   const n = crowd.countries.length;
   const t = crowd.total;
   wmSlot(`the map: ${n} ${n === 1 ? "place" : "places"}, ${t} ${t === 1 ? "seat" : "seats"}`);
+  WM.places = crowd.places;
+  WM.unplaced = crowd.unplaced;
+  wmGeoWire();
+  wmApply();
+  if (!crowd.places.length) wmDetail("");
 }
 
 async function wmLoad() {
