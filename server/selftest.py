@@ -4431,6 +4431,85 @@ var _p6vVerdict = pvBad.length ? "P6V-FAILS " + pv.join(" ") : "P6V-scenarios-be
           and 'data-view="worldmap"' in _zSrc,
           "a fold that opens gets a map that can see its own box")
 
+    # ------------------------------------------------- P6AB the folded seat
+    # a real member typed "New York, New York" into the one required word
+    # and rode unplaced: the gazetteer's own grammar now reads the pair by
+    # its parts (the U.S. habit City, State), and nothing is invented.
+    _abAsks = []
+    _abOldNom = _wPl.nominatim
+    _wPl.nominatim = lambda *a, **k: (_abAsks.append(1), None)[1]
+    _abPair = _wPl.locate("New York, New York", live=True)
+    _abSplit = _wPl.locate("USA", "New York", "New York")
+    _abTwin = _wPl.locate("Lawrence, Kansas")
+    _abNoWire = len(_abAsks) == 0
+    _abUnknown = _wPl.locate("Gotham, Metropolis")
+    _abUnknownLive = _wPl.locate("Gotham, Metropolis", live=True)
+    _abOneAsk = len(_abAsks) == 1
+    _abCaseTwin = _wPl.locate("new york, new york") == _abPair
+    _abThree = _wPl.locate("Ithaca, New York, USA")
+    _abPinnedHold = (_wPl.locate("USA") == (39.8, -98.5, "country")
+                     and _wPl.locate("USA", "Kansas", "Lawrence")
+                     == (38.97, -95.24, "city")
+                     and _wPl.locate("Atlantis") is None
+                     and _wPl.locate("USA", "Kansas")[2] == "region")
+    _abHomonyms = {w for (c, w) in _wPl.SUBNATIONALS
+                   if sum(1 for (c2, w2) in _wPl.SUBNATIONALS
+                          if w2 == w and c2 != c)}
+    _wPl.nominatim = _abOldNom
+    check("P6AB the folded seat-word is read by its own parts: the bug's own "
+          "bytes ('New York, New York' as the one required word) land on the "
+          "very point and the very precision word the split words always "
+          "gave — from the tables at zero wire, the case's twins forgiven, a "
+          "country-tail triple riding the ordinary roads — the known-good "
+          "'Lawrence, Kansas' twin riding the same law to its own city's "
+          "point, and every shape pinned before this mile (USA alone, the "
+          "split Lawrence, the refused Atlantis, the region-or-country "
+          "settling) standing byte-unchanged",
+          _abPair == _abSplit == (40.71, -74.01, "city")
+          and _abTwin == (38.97, -95.24, "city") and _abNoWire
+          and _abCaseTwin and _abThree[2] == "region" and _abPinnedHold,
+          str(_abPair))
+    check("P6AB a pair whose parts the tables do not know earns no pin and "
+          "no invention: live off it stands unplaced out loud, and live on it "
+          "asks the free lane exactly once — a failed geocoding is a missing "
+          "pin spoken, never a coordinate invented to hide the failure (and "
+          "the single-name guard rests today, the tables knowing no word in "
+          "two lands)",
+          _abUnknown is None and _abUnknownLive is None and _abOneAsk
+          and not _abHomonyms, str(_abAsks))
+    _abdb = dbmod.DB(":memory:", verbose=False)
+    _absvc = svc.Service(_abdb, None, stY2)
+    _abwm = _Wm(_abdb, stY2)
+    _abAcct = _absvc.create_or_touch_account("p6ab@paperboard.test")[0]["id"]
+    _abGhost = _absvc.create_or_touch_account("p6ab-ghost@paperboard.test")[0]["id"]
+    _abwm.set(_abAcct, {"country": "New York, New York"})
+    _abwm.set(_abGhost, {"country": "Atlantis"})
+    _abPub = _abwm.public_view()
+    _abSeat = [p for p in _abPub["places"]
+               if p["country"] == "New York, New York"]
+    check("P6AB the door's face now INCLUDES the folded seat where the bug "
+          "counted it out: one place with the real lat/lon fields (the very "
+          "point its split twin always rode), the raw word the member typed "
+          "is the word the place speaks, the still-unknown Atlantis seat "
+          "remains the one unplaced (a fix that over-places is as loud a bug "
+          "as one that loses pins), both seats are totalled, and the face "
+          "keeps its aggregate honour — no account id, no email",
+          len(_abSeat) == 1 and _abSeat[0]["lat"] == 40.71
+          and _abSeat[0]["lon"] == -74.01
+          and _abSeat[0]["precision"] == "city"
+          and _abPub["unplaced"] == 1 and _abPub["total"] == 2
+          and "account_id" not in str(_abPub), str(_abSeat)[:90])
+    check("P6AB the marker lane that mints pins for these records rides "
+          "unmoved (the fix is a gazetteer law, not a browser patch): one "
+          "circleMarker per returned place from the very fields the door "
+          "answers (p.lat, p.lon), one layer cleared before every draw so a "
+          "refresh or a seat change can not stack duplicate markers, and the "
+          "one-fit gate still waits for a measured box — the front end "
+          "needed no change because the pin was lost upstream",
+          "L.circleMarker([p.lat, p.lon]" in _zSrc
+          and "WM.layer.clearLayers()" in _zSrc and "WM.fitted" in _zSrc,
+          "browser-witnessed: the pair's pin rides the pane beside its twin's")
+
     print("failures:", len(FAILURES))
     return len(FAILURES)
 

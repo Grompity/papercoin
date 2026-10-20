@@ -244,6 +244,29 @@ def locate(country, region="", city="", live=False):
     key = canon(country)
     key = ALIASES.get(key, key)
     if key not in COUNTRIES:
+        # the comma's own grammar first: a member may fold their whole seat
+        # into the one required word ("New York, New York" is the U.S. habit
+        # City, State). a word that ENDS at a country hands the whole reading
+        # to the ordinary roads (the city word first, a region word's place
+        # second); otherwise the parts speak to the tables themselves — the
+        # first part as a city's word, the last as a region's, the earlier
+        # voice governing — and a part is believed only when the tables know
+        # that one word in one land (two lands would be a guess, and a guess
+        # is no pin). what no part places asks the free lane as ever, or
+        # stands unplaced out loud.
+        parts = [w.strip() for w in (country or "").split(",") if w.strip()]
+        if len(parts) > 1:
+            tail = canon(parts[-1])
+            if ALIASES.get(tail, tail) in COUNTRIES:
+                return locate(parts[-1],
+                              parts[-2] if len(parts) > 2 else "",
+                              parts[0], live=live)
+            for word, where in ((parts[0], "city"), (parts[-1], "region")):
+                lands = {pt for (_ck, k), pt in SUBNATIONALS.items()
+                         if k == canon(word)}
+                if len(lands) == 1:
+                    lat, lon = lands.pop()
+                    return lat, lon, where
         return nominatim(country, region, city) if live else None
     for word, where in ((city, "city"), (region, "region")):
         hit = SUBNATIONALS.get((key, canon(word))) if word else None
