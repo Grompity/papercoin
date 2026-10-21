@@ -545,3 +545,7 @@
   .run__frame { height: 56svh }
   .run__cap { flex-direction: column; align-items: flex-start }
 }
+
+/* p0: a refusal that can answer back — the wallet desk's fresh-link words
+ * invite a click to ask the mail door again (the lane itself rides the js). */
+.is-clickable { cursor: pointer; text-decoration: underline dotted; }

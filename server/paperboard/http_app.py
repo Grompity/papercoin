@@ -213,7 +213,12 @@ class Router:
                     return fail(401, "not_authenticated")
                 if account.get("status") != "active":
                     return fail(403, "account_closed")
-                return 200, s.dashboard(account, cid), None
+                # p0: one word of its own — the same server-side freshness the
+                # wallet door gates on, spoken in the account view, so a board
+                # can watch for the click instead of telling the member to go
+                # rediscover login rituals. additive; the dashboard stays pure.
+                return 200, dict(s.dashboard(account, cid),
+                                 sessionFresh=bool(session and session.get("fresh"))), None
             if path == "/api/account/submissions":
                 if account is None:
                     return fail(401, "not_authenticated")
