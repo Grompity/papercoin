@@ -246,8 +246,10 @@ class Service:
         """Resolves an account session, then keeps it honest: expired rows
         are deleted on the spot (invalidation), a seen session slides its
         window (renewal). Returns (account, meta) — meta.created rides the
-        login instant so the fresh-auth gate can ask 'did you just click a
-        magic link' and get a server-side answer, never a browser's."""
+        login instant, and meta.fresh answers 'did you click a magic link
+        within freshAuthMinutes' server-side, never a browser's word. p0
+        retired the wallet desk's use of it; the fact itself stands ready for
+        any door that still wants a just-clicked proof."""
         if not token:
             return None, None
         t = now() if at is None else float(at)
@@ -320,17 +322,16 @@ class Service:
         self.db.conn.commit()
         return None
 
-    def change_wallet(self, account, wallet, fresh, at=None):
-        """Account-settings wallet swap: authenticated (route) + freshly
-        authenticated (this gate — an attacker holding a warm session still
-        has to click a new magic link to move the money address). The new
-        address becomes reward-eligible only after the cooldown, so a
-        temporary account thief cannot instantly reroute a reward. An unchanged
-        submission answers wallet_unchanged — the desk refuses to call a no-op
-        a change."""
+    def change_wallet(self, account, wallet, at=None):
+        """Account-settings wallet swap: a valid session is the whole of the
+        standing (route), and p0 retired the fresh-proof ritual — it asked a
+        signed-in member to re-prove their login with a fresh magic click for
+        an ordinary address edit. What actually guards the money was never the
+        timestamp's age: the new address becomes reward-eligible only after
+        the cooldown, so a temporary account thief cannot instantly reroute a
+        reward. An unchanged submission answers wallet_unchanged — the desk
+        refuses to call a no-op a change."""
         t = now() if at is None else float(at)
-        if not fresh:
-            return None, "fresh_auth_required"
         addr = normalize_wallet(wallet or "")
         if addr is None:
             return None, "invalid_solana_address"

@@ -739,12 +739,12 @@ def main():
           " DOOR rides the seam, so the retry cannot leak past the door itself",
           bool(_pm) and "await postJoinWithRetry({ email: v }, post)" in _pk
           and 'post("/api/account/start"' not in _pk, "seam extracted")
-    # p0 re-pins the old clause, honestly: the wallet desk's inline ask rides
-    # the same door the join rides, so it rides the same seam; the ban that
-    # stands is that NO bare post() call on the start door survives at all.
+    # p0's second stroke: the desk's magic ask has since retired entirely, so
+    # the start door has one caller again — the join lane — riding the seam,
+    # and no bare post() call on the door survives at all.
     check("P0 every caller of the start door rides the seam — the bare call is extinct",
           _pk.count('post("/api/account/start"') == 0
-          and _pk.count('postJoinWithRetry({ email:') >= 2, "callers folded")
+          and _pk.count('postJoinWithRetry({ email:') == 1, "one caller, sealed")
     _js = _pm.group(1) + r"""
 var mkSP = function (val, okFlag) {
   return { val: val, ok: okFlag,
@@ -1174,8 +1174,8 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
     database.conn.commit()
     stt, payload = go("POST", "/api/account/wallet", cookies=ck, headers=JSONISH,
                       body={"wallet": CA})
-    check("wallet: a stale seat must re-verify (fresh-auth gate answers 428)",
-          stt == 428 and payload.get("error") == "fresh_auth_required", f"{stt}")
+    check("wallet: a stale seat moves its own wallet at once (p0 retired the fresh-proof gate)",
+          stt == 200 and payload.get("wallet") == CA, f"{stt}")
     stt, payload = go("POST", "/api/account/wallet", cookies=ck,
                       headers={"content-type": "application/x-www-form-urlencoded"},
                       body={"wallet": CA})
@@ -1264,10 +1264,12 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
           and "confirm?" in _pbjs7, str(len(_pbjs7)))
 
     # ------------------------------------------------ P0 the wallet rides the seat
-    # the member's saga, one chapter: the proof to move money lives fifteen
-    # minutes past a click (by design), and the board now answers for that
-    # itself. the battery walks the doors the inline lane rides, so the lane
-    # cannot rot into a dead end again. no logout, no lost draft, no ritual.
+    # the product law, one chapter: an ordinary address edit asks an ordinary
+    # session — no link sent, opened, watched, or stowed. what stands is all of
+    # the old law minus the ritual: the door's 401/403/415 walls, the desk's own
+    # bucket, the shape wall, the no-op wall, and one transaction whose written
+    # wallet_effective_at keeps the theft guard prospective. the sign-in lane
+    # keeps every magic law untouched — the two door checks below are sign-in's.
     r._rl.clear()                            # the dev bucket table, freshly swept
     database.conn.execute("DELETE FROM wallet_audit WHERE account_id=?", (idw,))
     database.conn.execute(
@@ -1275,50 +1277,49 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
         (CA, None, idw))                     # the desk starts from a known address
     database.conn.execute(
         "UPDATE sessions SET created_at=? WHERE token=?",
-        (time.time() - 7200, seatw))          # and the proof ages out on purpose
+        (time.time() - 7200, seatw))          # two hours old: no click for hours
     database.conn.commit()
-    stt, payload = go("GET", "/api/account", cookies=ckw)
-    check("P0 the account view speaks its own freshness (an aged seat says so)",
-          stt == 200 and payload.get("sessionFresh") is False,
-          str(payload.get("sessionFresh")))
+    sent0 = len(s.mail.sent)                 # the mock mailer counts its own sends
     stt, payload = go("POST", "/api/account/wallet", cookies=ckw, headers=JSONISH,
                       body={"wallet": CA2})
-    check("P0 an aged proof cannot move the money — and the row did not move either",
-          stt == 428 and payload.get("error") == "fresh_auth_required"
-          and database.conn.execute("SELECT wallet FROM accounts WHERE id=?", (idw,))
-              .fetchone()["wallet"] == CA, f"{stt} {str(payload)[:60]}")
+    check("P0 a logged-in member moves the wallet at once: an aged seat commits, and no link was sent",
+          stt == 200 and payload.get("wallet") == CA2 and len(s.mail.sent) == sent0,
+          f"{stt} {str(payload)[:60]}")
+    stt, payload = go("GET", "/api/account", cookies=ckw)
+    check("P0 the change persists into the account view, and the theft guard rides prospective",
+          stt == 200 and (payload.get("account") or {}).get("wallet") == CA2
+          and (payload.get("account") or {}).get("wallet_effective_at") > time.time(),
+          str((payload.get("account") or {}).get("wallet_effective_at")))
+    n_audit = database.conn.execute(
+        "SELECT COUNT(*) n FROM wallet_audit WHERE account_id=?", (idw,)).fetchone()["n"]
+    stt, payload = go("POST", "/api/account/wallet", cookies=ckw, headers=JSONISH,
+                      body={"wallet": CA2})
+    n_audit2 = database.conn.execute(
+        "SELECT COUNT(*) n FROM wallet_audit WHERE account_id=?", (idw,)).fetchone()["n"]
+    check("P0 a replayed double-submit answers unchanged and churns no second audit",
+          stt == 422 and payload.get("error") == "wallet_unchanged"
+          and n_audit == 1 and n_audit2 == 1, f"{stt}/{n_audit}->{n_audit2}")
+    stt, payload = go("POST", "/api/account/wallet", cookies=ckw, headers=JSONISH,
+                      body={"wallet": "0" * 32})
+    check("P0 the server, not the keyboard, refuses a wrong shape (base58 has no zero)",
+          stt == 422 and payload.get("error") == "invalid_solana_address", str(payload))
+    stt, payload = go("POST", "/api/account/wallet", cookies={}, headers=JSONISH,
+                      body={"wallet": CA})
+    check("P0 an unauthenticated hand is turned at the door, not the ledger",
+          stt == 401 and payload.get("error") == "not_authenticated", f"{stt} {payload}")
+    stt, payload = go("POST", "/api/account/wallet", cookies=ckw,
+                      headers={"content-type": "application/x-www-form-urlencoded"},
+                      body={"wallet": "2" * 32})
+    check("P0 the csrf shape-wall stands: a form post cannot move the wallet",
+          stt == 415 and payload.get("error") == "unsupported_media_type", str(payload))
     stt, payload = go("POST", "/api/account/start",
                       body={"email": "wallet.changer@paper.io"})
     tokp = magic_from(payload or {})
-    check("P0 a logged-in member may ask the mail door themselves (the door is anonymous, no 409 dead end)",
-          stt == 200 and bool(tokp) and payload.get("sent") is True, str(payload)[:70])
     outp = r.dispatch("GET", "/api/auth/magic", {"token": tokp}, {}, {}, None)
-    seatp = outp[2]["Set-Cookie"].split("PBSD=")[1].split(";")[0]
-    ckp = {"PBSD": seatp}
-    stt, payload = go("GET", "/api/account", cookies=ckp)
-    check("P0 a fresh click refreshes the very state the wallet door reads",
-          stt == 200 and payload.get("sessionFresh") is True, str(payload.get("sessionFresh")))
-    stt, payload = go("GET", "/api/account", cookies=ckw)
-    check("P0 the old seat is not destroyed by the fresh one (two seats ride; nothing to reclaim)",
-          stt == 200 and (payload.get("account") or {}).get("id") == idw
-          and payload.get("sessionFresh") is False, str(stt))
-    CA3 = "9" * 32                            # a third, distinct address for the p0 leg
-    stt, payload = go("POST", "/api/account/wallet", cookies=ckp, headers=JSONISH,
-                      body={"wallet": CA3})
-    n_audit = database.conn.execute(
-        "SELECT COUNT(*) n FROM wallet_audit WHERE account_id=?", (idw,)).fetchone()["n"]
-    check("P0 a fresh click commits the stowed draft at once (no logout, no wait, no cooldown wall)",
-          stt == 200 and payload.get("wallet") == CA3 and n_audit == 1, str(payload)[:70])
-    stt, payload = go("POST", "/api/account/wallet", cookies=ckp, headers=JSONISH,
-                      body={"wallet": CA3})
-    n_audit2 = database.conn.execute(
-        "SELECT COUNT(*) n FROM wallet_audit WHERE account_id=?", (idw,)).fetchone()["n"]
-    check("P0 a replayed double-submit is an unchanged no-op (and churns no second audit)",
-          stt == 422 and payload.get("error") == "wallet_unchanged" and n_audit2 == 1,
-          f"{stt}/{n_audit2}")
     stt, payload = go("GET", "/api/auth/magic", {"token": tokp}, {}, {}, None)
-    check("P0 a spent link is spent: a re-click cannot reauthorize, so the board sends fresh",
-          stt == 401 and payload.get("error") == "used_link", str(payload))
+    check("P0 sign-in rides on unchanged: a spent link is spent to a re-click, so the door sends fresh",
+          outp[0] == 302 and stt == 401 and payload.get("error") == "used_link",
+          str(payload))
     stt, payload = go("POST", "/api/account/start",
                       body={"email": "wallet.changer@paper.io"})
     tokq = magic_from(payload or {})
@@ -1326,17 +1327,19 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
                           (time.time() - 10, hash_magic_token(tokq)))
     database.conn.commit()
     stt, payload = go("GET", "/api/auth/magic", {"token": tokq}, {}, {}, None)
-    check("P0 an expired link (or a replayed one after its expiry) cannot authorize a change",
+    check("P0 an expired link cannot sign anybody in either (the magic lane endures whole)",
           stt == 401 and payload.get("error") == "expired_link", str(payload))
     _pbjs8 = open(os.path.join(os.path.dirname(__file__), "..", "js",
                                "paperboard.js")).read()
-    check("P0 the shipped js carries the inline lane: the ask, the watched word, the stowed draft",
-          '"/api/account/start"' in _pbjs8 and "sessionFresh" in _pbjs8
-          and "paperboard-wallet" in _pbjs8 and "resumeWalletDraft" in _pbjs8,
+    check("P0 the shipped js has retired the desk's magic lane entirely — no ask, no watch, no stow",
+          "sendFreshLink" not in _pbjs8 and "startWalletPoll" not in _pbjs8
+          and "resumeWalletDraft" not in _pbjs8 and "paperboard-wallet" not in _pbjs8,
           str(len(_pbjs8)))
     database.conn.execute(
-        "UPDATE accounts SET wallet_effective_at=? WHERE id=?", (None, idw))
-    database.conn.commit()                                 # the future-date rides history
+        "UPDATE accounts SET wallet=?, wallet_effective_at=? WHERE id=?",
+        (CA2, None, idw))
+    database.conn.execute("DELETE FROM wallet_audit WHERE account_id=?", (idw,))
+    database.conn.commit()                                 # the ledger rides deterministic
 
     stt, payload = go("POST", "/api/account/start", body={"email": "grompity@paper.io"})
     toke = magic_from(payload or {})

@@ -217,7 +217,6 @@ async function resolveAccount() {
   if (!S.dash.account || !S.dash.account.onboarded) { setState("welcome"); return; }
   setState("dash");
   await refreshAccount(false);
-  resumeWalletDraft();                        /* p0: a half-finished save comes home */
 }
 
 /* pull the account view again (after onboarding / submitting) and paint */
@@ -480,38 +479,22 @@ async function doOnboard() {
 }
 
 let walletArmed = null;   /* two stages to a save: the first click arms, the second commits */
-/* p0: the wall that ate a member's afternoon. the proof to move money lives
- * fifteen minutes past a click (by design), and the board now answers for it
- * itself — it sends its own magic ask through the same anonymous door the
- * login rides, watches the very server word the wallet door reads, and commits
- * the stowed draft exactly once. the draft rides the browser's own small
- * storage, so a reload (or a return from the mail app) finds the desk still
- * mid-thought — never a logout, never a lost address. */
-let walletDraft = null, walletBusy = false, walletPoll = null;
-const walletStore = {
-  set(v) { try { localStorage.setItem("paperboard-wallet", v ? JSON.stringify(v) : ""); } catch (e) {} },
-  get() { try { const raw = localStorage.getItem("paperboard-wallet");
-               return raw ? JSON.parse(raw) : null; } catch (e) { return null; } },
-};
-const errWords = () => $(`[data-slot="wallet-err"]`);
-function armWalletWords() {                  /* the words that answer a click */
-  const el = errWords();
-  if (el) { el.classList.add("is-clickable");
-            el.onclick = () => { if (!walletBusy) sendFreshLink(); }; }
-}
-function clearWalletWords() {
-  const el = errWords();
-  if (el) { el.classList.remove("is-clickable"); el.onclick = null; }
-}
+/* p0: the desk no longer asks a member to prove their own login twice. the
+ * fresh-proof ritual is retired here — a valid session is the standing, and
+ * the money risk was always held elsewhere: the prospective reward-eligibility
+ * date rides the write itself (the ledger law P6AA pinned). the two-stage save
+ * is the confirmation, the shared post() is the seam, and the join lane's
+ * hardened retry seam stays fenced to its own door. */
+let walletBusy = false;                      /* one committed request in the while, ever */
 async function doChangeWallet() {
   const input = $("#pb-wallet-settings-input");
   const save = $(`[data-action="change-wallet"]`);
   if (walletBusy) return;                    /* one committed request in the while, ever */
   const v = (input?.value || "").trim();
-  errSlot("wallet-err", ""); clearWalletWords();
+  errSlot("wallet-err", "");
   if (!v) { errSlot("wallet-err", "name the new address first."); return; }
   if (v === (((S.dash || {}).account || {}).wallet || null)) {
-    walletArmed = null; walletDraft = null; walletStore.set(null);
+    walletArmed = null;
     if (save) save.textContent = "Save";
     errSlot("wallet-err", "that is already the reward wallet.");
     return;
@@ -527,113 +510,19 @@ async function doChangeWallet() {
   walletBusy = true;
   try {
     const d = await post("/api/account/wallet", { wallet: v });
-    walletDraft = null; walletStore.set(null);
-    await refreshAccount(false);
+    await refreshAccount(false);            /* the server's own word paints the desk */
     setState("dash");
     errSlot("wallet-err", `saved — rewards will ride ${shortAddr(d.wallet)}`);
   } catch (e) {
-    const err = e.payload?.error;
-    if (err === "fresh_auth_required") {    /* p0: the inline re-verify, never a logout */
-      walletDraft = v;
-      await sendFreshLink(v);
-      return;
-    }
-    walletDraft = null; walletStore.set(null);
-    if (err === "wallet_unchanged") {       /* a twin click landed first — that is a success */
-      await refreshAccount(false);
-      setState("dash");
-      errSlot("wallet-err", `saved — rewards will ride ${shortAddr(v)}`);
-    } else {
-      const msg = { invalid_solana_address: "that isn't shaped like a Solana address.",
-                    wallet_rate_limited: "ease off — the wallet desk is resting.",
-                    unsupported_media_type: "form posts need not apply.",
-                    account_closed: "that account is closed." }[err]
-                  || err || "the wallet desk blinked.";
-      errSlot("wallet-err", msg);
-    }
+    const msg = { invalid_solana_address: "that isn't shaped like a Solana address.",
+                  wallet_unchanged: "that is already the reward wallet.",
+                  wallet_rate_limited: "ease off — the wallet desk is resting.",
+                  unsupported_media_type: "form posts need not apply.",
+                  account_closed: "that account is closed." }[e.payload?.error]
+                || e.payload?.error || "the wallet desk blinked.";
+    errSlot("wallet-err", msg);
   } finally { walletBusy = false; }
 }
-async function sendFreshLink(addr) {
-  /* the board asks the same anonymous door login rides, for the member's own
-   * inbox — never the member. a deferral is truth (the link is still walking);
-   * a mail refusal or a resting bucket speaks actionable words. */
-  const v = addr || walletDraft;
-  if (!v) return;
-  try {
-    const out = await postJoinWithRetry({ email: (((S.dash || {}).account) || {}).email }, post);
-    walletStore.set({ addr: v, waiting: true });
-    errSlot("wallet-err", out.deferred
-      ? "the link is still walking — open it and we'll finish the save."
-      : "a fresh magic link is on its way to your mail — open it and we'll finish the save.");
-    armWalletWords();
-    startWalletPoll(v);
-  } catch (e) {
-    const err = e.payload?.error;
-    walletStore.set({ addr: v, waiting: false });
-    errSlot("wallet-err", err === "mail_failed"
-      ? "the mail door refused the send — click these words to ask again."
-      : err === "magic_rate_limited"
-        ? "the mail door is resting a minute — click these words to ask again."
-        : "the mail door stumbled — click these words to ask again.");
-    armWalletWords();
-  }
-}
-function startWalletPoll(v) {
-  /* the watch for the click: the account view speaks its own freshness; when
-   * it flips true, the stowed draft commits — once, and no looping. */
-  if (walletPoll) clearInterval(walletPoll);
-  let ticks = 0;
-  walletPoll = setInterval(async () => {
-    ticks += 1;
-    let fresh = false;
-    try { fresh = (await get("/api/account")).sessionFresh === true; } catch (e) { fresh = false; }
-    if (fresh) {
-      clearInterval(walletPoll); walletPoll = null;
-      walletBusy = true;
-      try {
-        const d = await post("/api/account/wallet", { wallet: v });
-        walletDraft = null; walletStore.set(null);
-        await refreshAccount(false); setState("dash");
-        errSlot("wallet-err", `saved — rewards will ride ${shortAddr(d.wallet)}`);
-        clearWalletWords();
-      } catch (e) {
-        if (e.payload?.error === "wallet_unchanged") {   /* a twin commit already landed */
-          walletDraft = null; walletStore.set(null);
-          await refreshAccount(false); setState("dash");
-          errSlot("wallet-err", "saved — rewards will ride " + shortAddr(v));
-          clearWalletWords();
-        } else {
-          walletStore.set({ addr: v, waiting: false });
-          errSlot("wallet-err", "the save still waits — click these words to ask the door again.");
-          armWalletWords();
-        }
-      } finally { walletBusy = false; }
-    }
-    else if (ticks >= 40) {                  /* ~two minutes: the mail is slow, not lost */
-      clearInterval(walletPoll); walletPoll = null;
-      walletStore.set({ addr: v, waiting: false });
-      errSlot("wallet-err", "the mail is still walking — click these words when the link is open.");
-      armWalletWords();
-    }
-  }, 3000);
-}
-function resumeWalletDraft() {
-  /* the recoverable path: a reload, or a return from the mail app, finds the
-   * desk holding its thought instead of a blank face. */
-  const st = walletStore.get();
-  if (!st) return;
-  walletDraft = st.addr;
-  const input = $("#pb-wallet-settings-input");
-  if (input) input.value = st.addr;
-  if (st.waiting) {
-    errSlot("wallet-err", "still waiting on your fresh click — open the link and we'll finish the save.");
-    armWalletWords(); startWalletPoll(st.addr);
-  } else {
-    errSlot("wallet-err", "a fresh click is asked for — click these words to ask again.");
-    armWalletWords();
-  }
-}
-
 /* — the X ownership proof (a post is the deed; the server reads it) — */
 const X_VERIFY_FALLBACK = "I just signed up for PAPERBOARD, a new raiding platform by @paperusdc. Get paid to post!";
 async function doXVerify() {

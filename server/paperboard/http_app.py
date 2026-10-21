@@ -213,12 +213,10 @@ class Router:
                     return fail(401, "not_authenticated")
                 if account.get("status") != "active":
                     return fail(403, "account_closed")
-                # p0: one word of its own — the same server-side freshness the
-                # wallet door gates on, spoken in the account view, so a board
-                # can watch for the click instead of telling the member to go
-                # rediscover login rituals. additive; the dashboard stays pure.
-                return 200, dict(s.dashboard(account, cid),
-                                 sessionFresh=bool(session and session.get("fresh"))), None
+                # p0: the freshness word retires with the gate that needed it —
+                # the dashboard speaks alone, exactly as it did before the
+                # watch existed.
+                return 200, s.dashboard(account, cid), None
             if path == "/api/account/submissions":
                 if account is None:
                     return fail(401, "not_authenticated")
@@ -503,20 +501,21 @@ class Router:
 
             if path == "/api/account/wallet":
                 # the money door: gated like its siblings, with its own bucket
-                # (the pattern every account-state POST keeps), and only then
-                # handed to the service, whose fresh gate answers last.
+                # (the pattern every account-state POST keeps). p0: a valid
+                # session walks right in — no fresh-proof ritual stands
+                # between a logged-in member and their own address. the
+                # service's own walls answer last (shape, then the no-op law),
+                # and the theft guard is the prospective effective date the
+                # write itself carries, not a timestamp's age.
                 denied = acct_gate()
                 if denied:
                     return denied
                 if not self._allow(f"wallet:{account['id']}",
                                    rl["walletPerTenMinutes"], 600):
                     return fail(429, "wallet_rate_limited")
-                addr, err = s.change_wallet(
-                    account, (body or {}).get("wallet"),
-                    bool(session and session.get("fresh")))
+                addr, err = s.change_wallet(account, (body or {}).get("wallet"))
                 if err:
-                    return fail({"fresh_auth_required": 428,
-                                 "invalid_solana_address": 422,
+                    return fail({"invalid_solana_address": 422,
                                  "wallet_unchanged": 422}.get(err, 422), err)
                 fresh_row = s.account_by_id(account["id"])
                 return ok(wallet=addr,
