@@ -3179,6 +3179,7 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
              _arf.submit(_fa2, "press-run", (_acf["scoreMax"]) + 1)[0],
              _arf.submit(_fa1, "nope-game", 10)[0]]
     _fstruct = time.strptime(_fkey, "%Y-%m-%d")
+    _cal = __import__("calendar")        # the UTC yardstick: a real DST gap must not move a calendar week
     _fdn = int(time.time()) // 86400
     _fdow = (_fdn + 3) % 7
     _fdd = (4 - _fdow) % 7
@@ -3226,8 +3227,8 @@ var _p6kVerdict = bad6.length ? 'P6K-FAILS ' + res.join(' ') : 'P6K-scenarios-be
           _frb[0] == "first" and _frb[1]["week"] == _fkey
           and _fra[0] == "first" and _fra[1]["week"] == _wk(_fbound + 60)
           and _fra[1]["week"] != _fkey
-          and abs(time.mktime(time.strptime(_fra[1]["week"], "%Y-%m-%d"))
-                   - time.mktime(_fstruct)) == 604800
+          and abs(_cal.timegm(time.strptime(_fra[1]["week"], "%Y-%m-%d"))
+                  - _cal.timegm(_fstruct)) == 604800
           and len(_arf.board("inkfall", _fkey)) == 1
           and _arf.board("press-run", _fra[1]["week"]) == [], \
               str((_frb[0], _fra[0], _frb[1]["week"] == _fkey, _fra[1]["week"])))
@@ -4164,11 +4165,16 @@ var _p6vVerdict = pvBad.length ? "P6V-FAILS " + pv.join(" ") : "P6V-scenarios-be
           " travels to the app too — /studio/assets/:path* asks the board's"
           " own door for the bytes (before this, Vercel was asked for a file"
           " it never had, and answered with its own not-found HTML), and the"
-          "#pb-world mount and every other route is untouched",
+          "#pb-world mount and every other route is untouched — and the apex"
+          " board learns the admin shell's own doorway: /admin travels to"
+          " /admin.html at the edge, so Vercel stops answering its own"
+          " not-found for a page the repo ships (p6ac)",
           [ _r["source"] for _r in _wVc["rewrites"] ]
-              == ["/api/:path*", "/studio/assets/:path*", "/studio"]
+              == ["/api/:path*", "/studio/assets/:path*", "/studio", "/admin"]
           and _wVc["rewrites"][1]["destination"]
-              == "https://api.seyruna.com/studio/assets/:path*",
+              == "https://api.seyruna.com/studio/assets/:path*"
+          and _wVc["rewrites"][3]
+              == {"source": "/admin", "destination": "/admin.html"},
           str([_r["source"] for _r in _wVc["rewrites"]])[:120])
     check("P6W the gazetteer answers the brief's own examples from its own"
           " tables (no live lane, no key): USA alone lands on the country's"

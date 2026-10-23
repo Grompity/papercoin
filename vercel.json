@@ -3,6 +3,7 @@
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://api.seyruna.com/api/:path*" },
     { "source": "/studio/assets/:path*", "destination": "https://api.seyruna.com/studio/assets/:path*" },
-    { "source": "/studio", "destination": "/studio.html" }
+    { "source": "/studio", "destination": "/studio.html" },
+    { "source": "/admin", "destination": "/admin.html" }
   ]
 }
