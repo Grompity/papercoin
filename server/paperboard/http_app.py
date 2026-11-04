@@ -12,6 +12,7 @@ import secrets
 import time
 
 from .accounts import normalize_email
+from .wallet_auth import WalletAuth, RESERVED_DOMAIN
 from .artboard import Artboard
 from .worldmap import WorldMap
 from .arcade import Arcade, week_key
@@ -51,6 +52,7 @@ class Router:
         self.ar = Arcade(db, settings)
         self.stud = Studio(db, settings)
         self._rl = {}
+        self.wallet_auth = WalletAuth(service)
 
     # ------------------------------------------------------------ rate limits
     def _allow(self, key, limit, window):
@@ -156,7 +158,9 @@ class Router:
                 return ok(ok=True, version=__version__, now=now, mode=mode,
                           modeReason=settings.mock_reason, scheduler=settings.scheduler)
             if path == "/api/config":
-                return 200, settings.public_view(), None
+                view = settings.public_view()
+                view["walletAuth"] = {"enabled": self.wallet_auth.enabled, "version": 1}
+                return 200, view, None
             if path == "/api/competitions":
                 rows = [dict(r) for r in
                         s.db.conn.execute("SELECT * FROM competitions ORDER BY id")]
@@ -216,7 +220,13 @@ class Router:
                 # p0: the freshness word retires with the gate that needed it —
                 # the dashboard speaks alone, exactly as it did before the
                 # watch existed.
-                return 200, s.dashboard(account, cid), None
+                view = s.dashboard(account, cid)
+                proof = self.db.conn.execute(
+                    "SELECT wallet FROM wallet_logins WHERE account_id=?", (account["id"],)).fetchone()
+                view["account"]["login_wallet"] = proof["wallet"] if proof else None
+                if account["email"].endswith("@" + RESERVED_DOMAIN):
+                    view["account"]["email"] = None
+                return 200, view, None
             if path == "/api/account/submissions":
                 if account is None:
                     return fail(401, "not_authenticated")
@@ -448,6 +458,25 @@ class Router:
                     return fail(code, res.get("reason", "verify_failed"))
                 return ok(**res)
 
+            if path in ("/api/account/wallet-auth/challenge", "/api/account/wallet-auth/confirm"):
+                if ctype and not ctype.startswith("application/json"):
+                    return fail(415, "unsupported_media_type")
+                if not self._allow(f"wallet-auth:{ip}", 30, 600):
+                    return fail(429, "wallet_rate_limited")
+                b = body or {}
+                try:
+                    if path.endswith("/challenge"):
+                        result = self.wallet_auth.challenge(
+                            b.get("wallet"), settings.public_base, account,
+                            create_new=b.get("createNew") is True, at=now)
+                        return 200, result, {"Cache-Control": "no-store"}
+                    signed_in = self.wallet_auth.confirm(b.get("nonce"), b.get("signature"), account, at=now)
+                    seat = s.account_new_session(signed_in["id"])
+                    return 200, {"authenticated": True, "accountId": signed_in["id"]}, {
+                        "Set-Cookie": cookie(seat), "Cache-Control": "no-store"}
+                except ValueError as exc:
+                    return fail(422, str(exc))
+
             if path == "/api/account/start":
                 # the one anonymous door: no session yet, so no gate — only
                 # the two rate buckets and the email shape.
@@ -456,7 +485,7 @@ class Router:
                 if not self._allow(f"start:{ip}", 30, 600):
                     return fail(429, "magic_rate_limited")
                 email = normalize_email((body or {}).get("email"))
-                if email is None:
+                if email is None or email.endswith("@" + RESERVED_DOMAIN):
                     return fail(422, "invalid_email")
                 if not self._allow(f"magic:{email}", rl["magicSendPerTenMinutes"], 600):
                     return fail(429, "magic_rate_limited")
